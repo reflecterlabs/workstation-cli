@@ -12,6 +12,7 @@ set -euo pipefail
 # CONFIGURATION
 # ============================================================================
 
+# shellcheck disable=SC2034
 readonly VERSION="2.0.0"
 readonly WORKSTATION_ROOT="${WORKSTATION_ROOT:-$HOME/Workstation}"
 readonly OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
@@ -32,6 +33,7 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# shellcheck disable=SC2015
 log_debug() { [[ "${WORKSTATION_DEBUG:-}" == "1" ]] && echo -e "${CYAN}[DEBUG]${NC} $1" || true; }
 
 die() {
@@ -43,6 +45,7 @@ die() {
 # UTILITIES
 # ============================================================================
 
+# shellcheck disable=SC2120
 find_ssot() {
   local dir="${1:-$PWD}"
   while [[ "$dir" != "/" ]]; do
@@ -70,7 +73,8 @@ get_seat_workspace() {
 get_seat_backup_path() {
   local ssot_dir="$1"
   local seat_id="$2"
-  local backup_rel=$(jq -r --arg id "$seat_id" '.seats[] | select(.id == $id) | .backup_path' "$ssot_dir/workstation.json" 2>/dev/null)
+  local backup_rel
+  backup_rel=$(jq -r --arg id "$seat_id" '.seats[] | select(.id == $id) | .backup_path' "$ssot_dir/workstation.json" 2>/dev/null)
   echo "$ssot_dir/$backup_rel"
 }
 
@@ -168,7 +172,8 @@ cmd_init() {
 EOF
 
   # Copy templates
-  local template_source="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/templates"
+  local template_source
+  template_source="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/templates"
   if [[ -d "$template_source" ]]; then
     cp -r "$template_source/seat"/* "$ssot_path/templates/seat/" 2>/dev/null || true
   fi
@@ -269,6 +274,7 @@ cmd_seat_create() {
   fi
   
   local ssot_dir
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found. Are you in an SSOT directory?"
   
   local config_file="$ssot_dir/workstation.json"
@@ -373,6 +379,8 @@ cmd_seat_activate() {
   fi
   
   local ssot_dir
+  # shellcheck disable=SC2119
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found"
   
   local workspace_path
@@ -415,6 +423,8 @@ cmd_seat_activate() {
 
 cmd_seat_list() {
   local ssot_dir
+  # shellcheck disable=SC2119
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found"
   
   local config_file="$ssot_dir/workstation.json"
@@ -445,6 +455,7 @@ cmd_seat_sync() {
   local seat_id="${1:-}"
   
   local ssot_dir
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found"
   
   if [[ -n "$seat_id" ]]; then
@@ -477,7 +488,8 @@ sync_single_seat() {
   
   # Create snapshot
   mkdir -p "$backup_path/snapshots"
-  local snapshot="$backup_path/snapshots/$(date +%Y%m%d-%H%M%S)"
+  local snapshot
+  snapshot="$backup_path/snapshots/$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$snapshot"
   
   # Backup critical files
@@ -497,8 +509,11 @@ sync_single_seat() {
   
   # Cleanup old snapshots (keep last 30)
   if [[ -d "$backup_path/snapshots" ]]; then
-    cd "$backup_path/snapshots"
-    ls -t 2>/dev/null | tail -n +31 | xargs -r rm -rf 2>/dev/null || true
+    find "$backup_path/snapshots" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\0' 2>/dev/null | \
+      sort -z -r -n | \
+      tail -z -n +31 | \
+      cut -z -d' ' -f2- | \
+      xargs -0 -r rm -rf 2>/dev/null || true
   fi
   
   # Sync KBs (create symlinks)
@@ -560,6 +575,7 @@ cmd_kb_add() {
   fi
   
   local ssot_dir
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found"
   
   local kb_path="$ssot_dir/KBs/$kb_name"
@@ -608,6 +624,7 @@ cmd_kb_add() {
 
 cmd_kb_update() {
   local ssot_dir
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found"
   
   log_info "Updating KBs..."
@@ -641,6 +658,7 @@ cmd_kb_update() {
 
 cmd_kb_list() {
   local ssot_dir
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found"
   
   echo -e "${BLUE}Knowledge Bases:${NC}"
@@ -655,6 +673,7 @@ cmd_kb_list() {
 
 cmd_backup() {
   local ssot_dir
+  # shellcheck disable=SC2119
   ssot_dir=$(find_ssot) || die "No workstation.json found"
   
   log_info "Running full backup..."
@@ -670,7 +689,8 @@ cmd_backup() {
     log_info "  Backing up: $seat_id"
     
     mkdir -p "$backup_path/archives"
-    local archive="$backup_path/archives/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    local archive
+    archive="$backup_path/archives/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
     
     tar -czf "$archive" -C "$workspace_path" \
       AGENT.md SOUL.md MEMORY.md TOOLS.md IDENTITY.md HEARTBEAT.md memory/ 2>/dev/null || true
