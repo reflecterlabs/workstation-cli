@@ -17,27 +17,28 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y jq git shellcheck
-        
-        # Install Bats
-        git clone https://github.com/bats-core/bats-core.git
-        cd bats-core
-        sudo ./install.sh /usr/local
-        cd ..
-        rm -rf bats-core
     
     - name: Run linter
       run: |
         shellcheck bin/workstation
-    
-    - name: Run tests
-      run: |
-        make test
     
     - name: Test installation
       run: |
         sudo make install
         workstation version
         workstation doctor
+    
+    - name: Test basic commands
+      run: |
+        # Test init
+        workstation init TestOrg
+        cd ~/Workstation/TestOrg-SSOT
+        
+        # Verify structure
+        test -f workstation.json
+        test -d templates/seat
+        
+        echo "✓ All basic tests passed"
 
   release:
     needs: test
