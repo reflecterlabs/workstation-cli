@@ -1,34 +1,90 @@
-# Workstation CLI v2.0
+# Workstation CLI
 
-**Organization Manager for OpenClaw Agents**
+<p align="center">
+  <img src="docs/assets/logo.png" alt="Workstation CLI Logo" width="120">
+</p>
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com/agentzfactory/workstation)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+<p align="center">
+  <strong>Organization Manager for OpenClaw Agents</strong>
+</p>
 
-Workstation is a command-line tool for managing AI agent organizations with OpenClaw. It provides structure for multi-agent setups, knowledge bases, and persistent memory across sessions.
+<p align="center">
+  <a href="https://github.com/reflecterlabs/workstation-cli/releases">
+    <img src="https://img.shields.io/github/v/release/reflecterlabs/workstation-cli?include_prereleases&style=flat-square" alt="Release">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/reflecterlabs/workstation-cli?style=flat-square" alt="License">
+  </a>
+  <a href="https://github.com/reflecterlabs/workstation-cli/actions">
+    <img src="https://img.shields.io/github/workflow/status/reflecterlabs/workstation-cli/CI?style=flat-square" alt="CI">
+  </a>
+  <a href="https://github.com/reflecterlabs/workstation-cli/stargazers">
+    <img src="https://img.shields.io/github/stars/reflecterlabs/workstation-cli?style=flat-square" alt="Stars">
+  </a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#documentation">Docs</a> •
+  <a href="#contributing">Contributing</a>
+</p>
+
+---
+
+## 🎯 What is Workstation?
+
+Workstation CLI is a **command-line tool for managing AI agent organizations**. It provides structure for multi-agent setups, knowledge bases, and persistent memory across sessions when using OpenClaw.
+
+### Perfect for:
+
+- 🏢 **Teams** managing multiple AI agents
+- 📚 **Organizations** with shared knowledge bases
+- 🔄 **Workflows** requiring agent context persistence
+- 🤖 **OpenClaw users** wanting better organization
+
+---
+
+## ✨ Features
+
+- 🏗️ **Multi-Organization** - Manage multiple orgs from one CLI
+- 👤 **Seat Management** - Create, activate, and switch between agent workspaces
+- 📚 **Knowledge Bases** - Share documentation across agents via git
+- 🧠 **Memory System** - Two-level memory (curated + daily logs)
+- 💾 **Automatic Backup** - Snapshots and archives with configurable retention
+- 🎭 **Agent Bootstrap** - Standardized onboarding ritual for new agents
+- 🔗 **OpenClaw Native** - Seamless integration with OpenClaw workspaces
+- ⚡ **Git-Based** - All state tracked in version control
 
 ---
 
 ## 🚀 Quick Start
 
-### Installation
-
 ```bash
-# Clone the repository
-git clone https://github.com/agentzfactory/workstation.git
+# Install
+sudo curl -fsSL https://raw.githubusercontent.com/reflecterlabs/workstation-cli/main/install.sh | bash
 
-# Make it available globally
-sudo ln -sf $(pwd)/workstation/bin/workstation /usr/local/bin/workstation
+# Initialize organization
+workstation init MyCompany
+cd ~/Workstation/MyCompany-SSOT
 
-# Or add to your PATH
-export PATH="$PATH:$(pwd)/workstation/bin"
+# Create agent seat
+workstation seat create developer --role backend
+
+# Activate
+workstation seat activate developer
 ```
+
+---
+
+## 📦 Installation
 
 ### Prerequisites
 
-- `jq` - JSON processor
-- `git` - Version control
-- OpenClaw (optional, for agent runtime)
+- **bash** 4.0+ (Linux/macOS/WSL)
+- **jq** - JSON processor
+- **git** - Version control
 
 ```bash
 # Ubuntu/Debian
@@ -38,36 +94,41 @@ sudo apt-get install jq git
 brew install jq git
 ```
 
+### Methods
+
+**Via curl (recommended):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/reflecterlabs/workstation-cli/main/install.sh | bash
+```
+
+**Via Homebrew:**
+```bash
+brew tap reflecterlabs/tap
+brew install workstation
+```
+
+**From source:**
+```bash
+git clone https://github.com/reflecterlabs/workstation-cli.git
+cd workstation-cli
+sudo make install
+```
+
+Verify installation:
+```bash
+workstation version
+workstation doctor
+```
+
 ---
 
-## 📖 Usage
+## 📖 Documentation
 
-### 1. Initialize Organization
-
-```bash
-workstation init MyCompany
-cd ~/Workstation/MyCompany-SSOT
-```
-
-### 2. Create Agent Seat
-
-```bash
-workstation seat create developer --role backend --model openrouter/anthropic/claude-sonnet-4-5
-```
-
-### 3. Activate Seat
-
-```bash
-workstation seat activate developer
-openclaw gateway restart
-```
-
-### 4. Add Knowledge Base
-
-```bash
-workstation kb add KB-Core https://github.com/myorg/KB-Core.git
-workstation seat sync
-```
+- [Installation Guide](docs/INSTALL.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Configuration](docs/CONFIG.md)
+- [API Reference](docs/API.md)
+- [Examples](examples/)
 
 ---
 
@@ -77,268 +138,119 @@ workstation seat sync
 ~/.openclaw/                          # OpenClaw runtime
 ├── workspace/                        # Symlink to active seat
 ├── workspace-developer/              # Individual seat workspace
-├── workspace-analyst/                # Another seat
 └── openclaw.json                     # OpenClaw config
 
 ~/Workstation/
 └── MyCompany-SSOT/                   # Organization SSOT
     ├── workstation.json              # Central configuration
     ├── KBs/                          # Knowledge Bases
-    │   ├── KB-Core/                  # Organizational knowledge
-    │   └── KB-Engineering/           # Technical knowledge
     ├── _seats/                       # Seat backups
-    │   ├── developer/
-    │   └── analyst/
-    ├── Projects/                     # Cross-seat projects
-    └── templates/seat/               # Seat templates
+    └── templates/                    # Seat templates
 ```
+
+[Read more about architecture →](docs/ARCHITECTURE.md)
 
 ---
 
-## 📚 Commands
-
-### General
-
-| Command | Description |
-|---------|-------------|
-| `workstation version` | Show version info |
-| `workstation doctor` | Check installation |
-| `workstation status` | Show current status |
-| `workstation help` | Show help |
+## 🛠️ Commands
 
 ### Organization
+```bash
+workstation init <name>              # Create new organization
+```
 
-| Command | Description |
-|---------|-------------|
-| `workstation init <name>` | Create new organization |
-
-### Seats
-
-| Command | Description |
-|---------|-------------|
-| `workstation seat create <id> [--role <role>] [--model <model>]` | Create new seat |
-| `workstation seat activate <id>` | Switch to seat |
-| `workstation seat list` | List all seats |
-| `workstation seat sync [id]` | Sync seat(s) |
+### Seats (Agents)
+```bash
+workstation seat create <id>         # Create new agent seat
+workstation seat activate <id>       # Switch to seat
+workstation seat list                # List all seats
+workstation seat sync [id]           # Sync seat(s)
+```
 
 ### Knowledge Bases
-
-| Command | Description |
-|---------|-------------|
-| `workstation kb add <name> <repo>` | Add KB from git repo |
-| `workstation kb update` | Update all KBs |
-| `workstation kb list` | List KBs |
+```bash
+workstation kb add <name> <repo>     # Add KB from git
+workstation kb update                # Update all KBs
+workstation kb list                  # List KBs
+```
 
 ### Maintenance
-
-| Command | Description |
-|---------|-------------|
-| `workstation backup` | Full backup |
-
----
-
-## 🎭 Seat Templates
-
-When creating a seat, these files are copied to the workspace:
-
-- `BOOTSTRAP.md` - First-time setup ritual (self-destructs after)
-- `AGENT.md` - Operational manual
-- `SOUL.md` - Personality and values
-- `TOOLS.md` - Available tools and access
-- `MEMORY.md` - Long-term memory
-- `HEARTBEAT.md` - Proactive task checklist
-- `IDENTITY.md` - Identity per channel
-
----
-
-## 🔄 Synchronization
-
-### Automatic (Cron)
-
 ```bash
-# Edit crontab
-crontab -e
-
-# Sync every hour
-0 * * * * /usr/local/bin/workstation seat sync
-
-# Backup every 4 hours
-0 */4 * * * /usr/local/bin/workstation backup
-```
-
-### Manual
-
-```bash
-# Sync specific seat
-workstation seat sync developer
-
-# Sync all seats
-workstation seat sync
-
-# Full backup
-workstation backup
+workstation backup                   # Full backup
+workstation status                   # Show status
+workstation doctor                   # Check installation
 ```
 
 ---
 
-## 💾 Memory System
+## 🎨 Use Cases
 
-### Two-Level Memory
-
-1. **MEMORY.md** - Curated long-term memory (injected every session)
-   - Key learnings
-   - Important decisions
-   - Active projects
-   - Key contacts
-
-2. **memory/YYYY-MM-DD.md** - Daily logs (on-demand)
-   - Daily activities
-   - Conversations
-   - Tasks completed
-
-### Backup Strategy
-
-- **Snapshots**: Per-sync backups (30 retained)
-- **Archives**: Compressed tarballs (30 days retained)
-- **Git**: All changes committed to SSOT
-
----
-
-## 🔧 Configuration
-
-### Environment Variables
-
+### Development Team
 ```bash
-# Root directory for organizations
-export WORKSTATION_ROOT="$HOME/Workstation"
-
-# OpenClaw home directory
-export OPENCLAW_HOME="$HOME/.openclaw"
-
-# Enable debug output
-export WORKSTATION_DEBUG=1
-```
-
-### workstation.json
-
-```json
-{
-  "version": "2.0.0",
-  "organization": {
-    "name": "MyCompany",
-    "timezone": "UTC",
-    "backup": {
-      "enabled": true,
-      "interval": "4h"
-    }
-  },
-  "seats": [
-    {
-      "id": "developer",
-      "role": "backend",
-      "model": "openrouter/anthropic/claude-sonnet-4-5",
-      "workspace_path": "~/.openclaw/workspace-developer",
-      "kbs": ["KB-Core", "KB-Engineering"]
-    }
-  ],
-  "kbs": [
-    {
-      "name": "KB-Core",
-      "repo": "https://github.com/myorg/KB-Core",
-      "auto_update": true
-    }
-  ]
-}
-```
-
----
-
-## 🤝 Integration with OpenClaw
-
-Workstation complements OpenClaw:
-
-| Feature | OpenClaw | Workstation |
-|---------|----------|-------------|
-| Agent Runtime | ✅ | ❌ (uses OpenClaw) |
-| Multi-Agent | ❌ | ✅ |
-| Knowledge Bases | ❌ | ✅ |
-| Memory Backup | ❌ | ✅ |
-| Organization | ❌ | ✅ |
-
----
-
-## 📝 Examples
-
-### Example 1: Development Team
-
-```bash
-# Init
 workstation init DevTeam
-
-# Create seats for each developer
 workstation seat create frontend-dev --role frontend
 workstation seat create backend-dev --role backend
 workstation seat create devops --role devops
-
-# Shared KB
 workstation kb add KB-Standards https://github.com/devteam/standards.git
-
-# Each developer activates their seat
-workstation seat activate frontend-dev
 ```
 
-### Example 2: Research Organization
-
+### Research Lab
 ```bash
 workstation init ResearchLab
-
 workstation seat create researcher-1 --role data-science
 workstation seat create researcher-2 --role bioinformatics
-
 workstation kb add KB-Methods https://github.com/lab/methods.git
-workstation kb add KB-Datasets https://github.com/lab/datasets.git
 ```
 
----
-
-## 🛠️ Development
-
+### Consulting Agency
 ```bash
-# Clone
-git clone https://github.com/agentzfactory/workstation.git
-cd workstation
-
-# Run tests
-./tests/run-tests.sh
-
-# Lint
-shellcheck bin/workstation
+workstation init Consultancy
+workstation seat create client-a-lead --role account-manager
+workstation seat create client-b-lead --role account-manager
+workstation seat create analyst --role data-analyst
 ```
 
 ---
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/my-feature`
-3. Commit changes: `git commit -am 'Add feature'`
-4. Push: `git push origin feature/my-feature`
-5. Open Pull Request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Quick Links
+
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Development Setup](docs/DEVELOPMENT.md)
+- [Roadmap](ROADMAP.md)
+
+### Contributors
+
+<a href="https://github.com/reflecterlabs/workstation-cli/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=reflecterlabs/workstation-cli" />
+</a>
 
 ---
 
-## 📄 License
+## 📜 License
 
-MIT License - see [LICENSE](LICENSE) file
+[MIT License](LICENSE) © Reflecter Labs
 
 ---
 
 ## 🔗 Links
 
-- [Documentation](docs/)
+- [Website](https://reflecterlabs.org)
+- [Documentation](https://docs.reflecterlabs.org/workstation)
 - [OpenClaw](https://github.com/openclaw/openclaw)
-- [Issues](https://github.com/agentzfactory/workstation/issues)
+- [Twitter](https://twitter.com/reflecterlabs)
+- [Discord](https://discord.gg/reflecterlabs)
 
 ---
 
-**Built for AI-native organizations** 🤖⚡
+<p align="center">
+  <strong>Built for AI-native organizations</strong> 🤖⚡
+</p>
+
+<p align="center">
+  Made with ❤️ by <a href="https://reflecterlabs.org">Reflecter Labs</a>
+</p>
