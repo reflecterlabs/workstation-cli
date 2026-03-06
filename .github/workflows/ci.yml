@@ -30,6 +30,10 @@ jobs:
     
     - name: Test basic commands
       run: |
+        # Configure git for CI environment
+        git config --global user.name "CI Test"
+        git config --global user.email "ci@example.com"
+        
         # Test init
         workstation init TestOrg
         cd ~/Workstation/TestOrg-SSOT
