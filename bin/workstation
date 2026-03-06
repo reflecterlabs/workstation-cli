@@ -166,16 +166,16 @@ cmd_init() {
     }
   },
   "templates": {
-    "seat": "templates/seat"
+    "seat": "assets/templates"
   }
 }
 EOF
 
   # Copy templates
   local template_source
-  template_source="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/templates"
+  template_source="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/assets/templates"
   if [[ -d "$template_source" ]]; then
-    cp -r "$template_source/seat"/* "$ssot_path/templates/seat/" 2>/dev/null || true
+    cp "$template_source"/*.md "$ssot_path/templates/seat/" 2>/dev/null || true
   fi
   
   # Create KB-Core skeleton
