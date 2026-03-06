@@ -1,0 +1,925 @@
+#!/usr/bin/env bash
+#
+# Workstation CLI v2.0 - Generic Organization Manager for OpenClaw
+# https://github.com/agentzfactory/workstation
+#
+# Usage: workstation [command] [options]
+#
+
+set -euo pipefail
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+readonly VERSION="2.0.0"
+readonly WORKSTATION_ROOT="${WORKSTATION_ROOT:-$HOME/Workstation}"
+readonly OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_debug() { [[ "${WORKSTATION_DEBUG:-}" == "1" ]] && echo -e "${CYAN}[DEBUG]${NC} $1" || true; }
+
+die() {
+  log_error "$1"
+  exit "${2:-1}"
+}
+
+# ============================================================================
+# UTILITIES
+# ============================================================================
+
+find_ssot() {
+  local dir="${1:-$PWD}"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/workstation.json" ]]; then
+      echo "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+get_ssot_config() {
+  local ssot_dir="$1"
+  local key="$2"
+  jq -r "$key" "$ssot_dir/workstation.json" 2>/dev/null || echo "null"
+}
+
+get_seat_workspace() {
+  local ssot_dir="$1"
+  local seat_id="$2"
+  jq -r --arg id "$seat_id" '.seats[] | select(.id == $id) | .workspace_path' "$ssot_dir/workstation.json" 2>/dev/null | sed "s|~|$HOME|g"
+}
+
+get_seat_backup_path() {
+  local ssot_dir="$1"
+  local seat_id="$2"
+  local backup_rel=$(jq -r --arg id "$seat_id" '.seats[] | select(.id == $id) | .backup_path' "$ssot_dir/workstation.json" 2>/dev/null)
+  echo "$ssot_dir/$backup_rel"
+}
+
+expand_path() {
+  echo "${1/#\~/$HOME}"
+}
+
+ensure_jq() {
+  if ! command -v jq >&1 2>/dev/null; then
+    die "jq is required. Install: sudo apt-get install jq (or equivalent)"
+  fi
+}
+
+# ============================================================================
+# COMMAND: version
+# ============================================================================
+
+cmd_version() {
+  echo "Workstation CLI v${VERSION}"
+  echo "Organization Manager for OpenClaw"
+  echo ""
+  echo "Paths:"
+  echo "  WORKSTATION_ROOT: $WORKSTATION_ROOT"
+  echo "  OPENCLAW_HOME: $OPENCLAW_HOME"
+}
+
+# ============================================================================
+# COMMAND: init
+# ============================================================================
+
+cmd_init() {
+  local org_name="${1:-}"
+  
+  if [[ -z "$org_name" ]]; then
+    die "Usage: workstation init <organization-name>"
+  fi
+  
+  # Validate name
+  if [[ ! "$org_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    die "Organization name must be alphanumeric with hyphens/underscores only"
+  fi
+  
+  local ssot_path="$WORKSTATION_ROOT/${org_name}-SSOT"
+  
+  if [[ -d "$ssot_path" ]]; then
+    die "Organization '$org_name' already exists at $ssot_path"
+  fi
+  
+  log_info "Initializing Workstation for: $org_name"
+  
+  # Create directory structure
+  mkdir -p "$ssot_path"/{_seats,_sync,KBs,Projects,docs,templates/seat,memory}
+  
+  # Generate workstation.json
+  cat > "$ssot_path/workstation.json" << EOF
+{
+  "version": "${VERSION}",
+  "schema": "workstation-v2",
+  "organization": {
+    "name": "$org_name",
+    "description": "",
+    "timezone": "UTC",
+    "openclaw_config_path": "~/.openclaw/openclaw.json",
+    "backup": {
+      "enabled": true,
+      "interval": "4h",
+      "auto_commit": true,
+      "retention_days": 30
+    }
+  },
+  "seats": [],
+  "kbs": [],
+  "projects": [],
+  "sync": {
+    "auto_backup": {
+      "enabled": true,
+      "interval": "4h",
+      "on_change": true,
+      "delay_seconds": 300
+    },
+    "kb_update": {
+      "enabled": true,
+      "interval": "1h"
+    },
+    "memory": {
+      "backup_on_change": true,
+      "compress_after_days": 7,
+      "archive_after_days": 30
+    }
+  },
+  "templates": {
+    "seat": "templates/seat"
+  }
+}
+EOF
+
+  # Copy templates
+  local template_source="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/templates"
+  if [[ -d "$template_source" ]]; then
+    cp -r "$template_source/seat"/* "$ssot_path/templates/seat/" 2>/dev/null || true
+  fi
+  
+  # Create KB-Core skeleton
+  mkdir -p "$ssot_path/KBs/KB-Core"
+  cat > "$ssot_path/KBs/KB-Core/README.md" << EOF
+# KB-Core: $org_name
+
+**Version**: 1.0.0  
+**Organization**: $org_name  
+
+## About
+
+This is the core Knowledge Base for $org_name.
+
+Edit this file to add your organizational guidelines, standards, and best practices.
+
+## Getting Started
+
+1. Update this README with your organization's mission and values
+2. Add additional markdown files for specific topics
+3. Run \`workstation kb update\` to sync with all seats
+EOF
+
+  # Initialize git
+  cd "$ssot_path"
+  git init > /dev/null 2>&1
+  
+  # Create .gitignore
+  cat > "$ssot_path/.gitignore" << 'EOF'
+# Workstation
+.env
+.env.local
+*.log
+.workstation/local/
+
+# KBs are cloned, not committed
+KBs/*/
+!KBs/KB-Core/
+
+# Seat backups contain sensitive data
+_seats/*/snapshots/
+_seats/*/archives/
+
+# OS files
+.DS_Store
+Thumbs.db
+EOF
+
+  git add . > /dev/null 2>&1
+  git commit -m "Initial Workstation setup for $org_name" > /dev/null 2>&1
+  
+  log_success "Workstation initialized at: $ssot_path"
+  echo ""
+  echo "Next steps:"
+  echo "  cd $ssot_path"
+  echo "  workstation seat create <name> --role <role>"
+}
+
+# ============================================================================
+# COMMAND: seat create
+# ============================================================================
+
+cmd_seat_create() {
+  local seat_id=""
+  local role=""
+  local model=""
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --role) role="$2"; shift 2 ;;
+      --model) model="$2"; shift 2 ;;
+      --help)
+        echo "Usage: workstation seat create <id> [--role <role>] [--model <model>]"
+        exit 0
+        ;;
+      -*)
+        die "Unknown option: $1"
+        ;;
+      *)
+        if [[ -z "$seat_id" ]]; then
+          seat_id="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  if [[ -z "$seat_id" ]]; then
+    die "Usage: workstation seat create <id> [--role <rol>] [--model <modelo>]"
+  fi
+  
+  # Validate seat_id
+  if [[ ! "$seat_id" =~ ^[a-z0-9-]+$ ]]; then
+    die "Seat ID must be lowercase alphanumeric with hyphens only (e.g., 'developer-1')"
+  fi
+  
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found. Are you in an SSOT directory?"
+  
+  local config_file="$ssot_dir/workstation.json"
+  local org_name
+  org_name=$(jq -r '.organization.name' "$config_file")
+  
+  log_info "Creating Seat: $seat_id"
+  
+  # 1. Create OpenClaw workspace
+  local workspace_path="$OPENCLAW_HOME/workspace-$seat_id"
+  
+  if command -v openclaw >&1 2>&1; then
+    log_info "Creating OpenClaw agent..."
+    openclaw agents add "$seat_id" --workspace "$workspace_path" 2>/dev/null || true
+  fi
+  
+  mkdir -p "$workspace_path"
+  
+  # 2. Copy and customize templates
+  local template_dir="$ssot_dir/templates/seat"
+  local date_str
+  date_str=$(date +%Y-%m-%d)
+  
+  if [[ -d "$template_dir" ]]; then
+    log_info "Copying templates..."
+    
+    for template in "$template_dir"/*.md; do
+      [[ -f "$template" ]] || continue
+      
+      local filename
+      filename=$(basename "$template")
+      local dest="$workspace_path/$filename"
+      
+      # Copy and replace placeholders
+      sed -e "s/{SEAT_ID}/$seat_id/g" \
+          -e "s/{ORG_NAME}/$org_name/g" \
+          -e "s/{DATE}/$date_str/g" \
+          -e "s/{ROLE}/${role:-general}/g" \
+          "$template" > "$dest"
+    done
+  fi
+  
+  # 3. Create imports directory
+  mkdir -p "$workspace_path/imports"
+  
+  # 4. Create backup directory
+  local backup_path="$ssot_dir/_seats/$seat_id"
+  mkdir -p "$backup_path"/{snapshots,archives}
+  
+  # 5. Update workstation.json
+  local tmp_config
+  tmp_config=$(mktemp)
+  
+  jq --arg id "$seat_id" \
+     --arg name "$seat_id" \
+     --arg workspace "$workspace_path" \
+     --arg backup "_seats/$seat_id" \
+     --arg role "${role:-general}" \
+     --arg model "${model:-openrouter/anthropic/claude-sonnet-4-5}" \
+     --arg date "$date_str" \
+     '.seats += [{
+       "id": $id,
+       "name": $name,
+       "openclaw_agent_id": $id,
+       "role": $role,
+       "workspace_path": $workspace,
+       "backup_path": $backup,
+       "model": $model,
+       "kbs": [],
+       "created_at": $date,
+       "last_sync": null,
+       "status": "created"
+     }]' "$config_file" > "$tmp_config"
+  
+  mv "$tmp_config" "$config_file"
+  
+  # 6. Git commit
+  cd "$ssot_dir"
+  git add workstation.json > /dev/null 2>&1
+  git commit -m "Add seat: $seat_id" > /dev/null 2>&1 || true
+  
+  log_success "Seat '$seat_id' created successfully"
+  echo ""
+  echo "Workspace: $workspace_path"
+  echo "To activate: workstation seat activate $seat_id"
+  
+  if [[ -f "$workspace_path/BOOTSTRAP.md" ]]; then
+    echo ""
+    log_info "BOOTSTRAP.md detected - The agent should read it on first startup"
+  fi
+}
+
+# ============================================================================
+# COMMAND: seat activate
+# ============================================================================
+
+cmd_seat_activate() {
+  local seat_id="${1:-}"
+  
+  if [[ -z "$seat_id" ]]; then
+    die "Usage: workstation seat activate <id>"
+  fi
+  
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found"
+  
+  local workspace_path
+  workspace_path=$(get_seat_workspace "$ssot_dir" "$seat_id")
+  
+  if [[ -z "$workspace_path" || "$workspace_path" == "null" ]]; then
+    die "Seat '$seat_id' not found in workstation.json"
+  fi
+  
+  if [[ ! -d "$workspace_path" ]]; then
+    die "Seat workspace not found at: $workspace_path"
+  fi
+  
+  log_info "Activating Seat: $seat_id"
+  
+  # Update symlink
+  rm -f "$OPENCLAW_HOME/workspace"
+  ln -s "$workspace_path" "$OPENCLAW_HOME/workspace"
+  
+  # Update status in config
+  local config_file="$ssot_dir/workstation.json"
+  local tmp_config
+  tmp_config=$(mktemp)
+  
+  jq --arg id "$seat_id" \
+     '.seats |= map(if .id == $id then .status = "active" else .status = "inactive" end)' \
+     "$config_file" > "$tmp_config"
+  
+  mv "$tmp_config" "$config_file"
+  
+  log_success "Seat '$seat_id' is now active"
+  log_info "Workspace: $workspace_path"
+  echo ""
+  log_warn "Restart OpenClaw to apply: openclaw gateway restart"
+}
+
+# ============================================================================
+# COMMAND: seat list
+# ============================================================================
+
+cmd_seat_list() {
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found"
+  
+  local config_file="$ssot_dir/workstation.json"
+  
+  echo -e "${BLUE}Seats:${NC}"
+  echo ""
+  
+  jq -r '.seats[] | "  \(.id) | \(.role) | \(.status // "unknown") | Last sync: \(.last_sync // "never")"' "$config_file" 2>/dev/null || echo "  No seats found"
+  
+  echo ""
+  echo -e "${BLUE}Active Workspace:${NC}"
+  if [[ -L "$OPENCLAW_HOME/workspace" ]]; then
+    local target
+    target=$(readlink "$OPENCLAW_HOME/workspace")
+    local active_seat
+    active_seat=$(basename "$target" | sed 's/workspace-//')
+    echo "  $active_seat -> $target"
+  else
+    echo "  No active workspace"
+  fi
+}
+
+# ============================================================================
+# COMMAND: seat sync
+# ============================================================================
+
+cmd_seat_sync() {
+  local seat_id="${1:-}"
+  
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found"
+  
+  if [[ -n "$seat_id" ]]; then
+    sync_single_seat "$ssot_dir" "$seat_id"
+  else
+    # Sync all seats
+    log_info "Syncing all seats..."
+    for id in $(jq -r '.seats[].id' "$ssot_dir/workstation.json" 2>/dev/null); do
+      sync_single_seat "$ssot_dir" "$id" || true
+    done
+  fi
+}
+
+sync_single_seat() {
+  local ssot_dir="$1"
+  local seat_id="$2"
+  local config_file="$ssot_dir/workstation.json"
+  
+  local workspace_path
+  workspace_path=$(get_seat_workspace "$ssot_dir" "$seat_id")
+  local backup_path
+  backup_path=$(get_seat_backup_path "$ssot_dir" "$seat_id")
+  
+  if [[ ! -d "$workspace_path" ]]; then
+    log_warn "Seat '$seat_id': workspace not found, skipping"
+    return 1
+  fi
+  
+  log_info "Syncing seat: $seat_id"
+  
+  # Create snapshot
+  mkdir -p "$backup_path/snapshots"
+  local snapshot="$backup_path/snapshots/$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$snapshot"
+  
+  # Backup critical files
+  local files=("AGENT.md" "SOUL.md" "MEMORY.md" "TOOLS.md" "IDENTITY.md" "HEARTBEAT.md")
+  for file in "${files[@]}"; do
+    if [[ -f "$workspace_path/$file" ]]; then
+      cp "$workspace_path/$file" "$snapshot/"
+      log_debug "  Backed up: $file"
+    fi
+  done
+  
+  # Backup memory directory
+  if [[ -d "$workspace_path/memory" ]]; then
+    cp -r "$workspace_path/memory" "$snapshot/"
+    log_debug "  Backed up: memory/"
+  fi
+  
+  # Cleanup old snapshots (keep last 30)
+  if [[ -d "$backup_path/snapshots" ]]; then
+    cd "$backup_path/snapshots"
+    ls -t 2>/dev/null | tail -n +31 | xargs -r rm -rf 2>/dev/null || true
+  fi
+  
+  # Sync KBs (create symlinks)
+  local org_name
+  org_name=$(jq -r '.organization.name' "$config_file")
+  local kbs
+  kbs=$(jq -r --arg id "$seat_id" '.seats[] | select(.id == $id) | .kbs[]' "$config_file" 2>/dev/null || true)
+  
+  if [[ -n "$kbs" && "$kbs" != "null" ]]; then
+    local imports_dir="$workspace_path/imports/$org_name"
+    mkdir -p "$imports_dir"
+    
+    for kb in $kbs; do
+      local kb_path="$ssot_dir/KBs/$kb"
+      local link_path="$imports_dir/$kb"
+      
+      if [[ -d "$kb_path" ]]; then
+        rm -f "$link_path"
+        ln -sf "$kb_path" "$link_path"
+        log_debug "  Linked KB: $kb"
+      else
+        log_warn "  KB not found: $kb"
+      fi
+    done
+  fi
+  
+  # Update timestamp
+  local tmp_config
+  tmp_config=$(mktemp)
+  local date_str
+  date_str=$(date +%Y-%m-%dT%H:%M:%S)
+  
+  jq --arg id "$seat_id" --arg date "$date_str" \
+     '.seats |= map(if .id == $id then .last_sync = $date else . end)' \
+     "$config_file" > "$tmp_config"
+  
+  mv "$tmp_config" "$config_file"
+  
+  # Git commit
+  cd "$ssot_dir"
+  if ! git diff --quiet 2>/dev/null; then
+    git add -A > /dev/null 2>&1
+    git commit -m "Sync seat: $seat_id - $(date '+%Y-%m-%d %H:%M')" > /dev/null 2>&1 || true
+  fi
+  
+  log_success "Seat '$seat_id' synced"
+}
+
+# ============================================================================
+# COMMAND: kb add
+# ============================================================================
+
+cmd_kb_add() {
+  local kb_name="${1:-}"
+  local repo="${2:-}"
+  
+  if [[ -z "$kb_name" || -z "$repo" ]]; then
+    die "Usage: workstation kb add <name> <repo-url>"
+  fi
+  
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found"
+  
+  local kb_path="$ssot_dir/KBs/$kb_name"
+  
+  if [[ -d "$kb_path" ]]; then
+    die "KB '$kb_name' already exists"
+  fi
+  
+  log_info "Adding KB: $kb_name"
+  
+  # Clone repo
+  if ! git clone "$repo" "$kb_path" 2>&1; then
+    die "Failed to clone $repo"
+  fi
+  
+  # Update config
+  local config_file="$ssot_dir/workstation.json"
+  local tmp_config
+  tmp_config=$(mktemp)
+  
+  jq --arg name "$kb_name" \
+     --arg repo "$repo" \
+     --arg path "KBs/$kb_name" \
+     '.kbs += [{
+       "name": $name,
+       "repo": $repo,
+       "local_path": $path,
+       "auto_update": true,
+       "update_interval": "1h"
+     }]' "$config_file" > "$tmp_config"
+  
+  mv "$tmp_config" "$config_file"
+  
+  # Git commit
+  cd "$ssot_dir"
+  git add workstation.json > /dev/null 2>&1
+  git commit -m "Add KB: $kb_name" > /dev/null 2>&1 || true
+  
+  log_success "KB '$kb_name' added"
+  log_info "Update seats to link: workstation seat sync"
+}
+
+# ============================================================================
+# COMMAND: kb update
+# ============================================================================
+
+cmd_kb_update() {
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found"
+  
+  log_info "Updating KBs..."
+  
+  local updated=0
+  for kb_dir in "$ssot_dir"/KBs/*/; do
+    [[ -d "$kb_dir/.git" ]] || continue
+    
+    local kb_name
+    kb_name=$(basename "$kb_dir")
+    
+    log_info "  Pulling $kb_name..."
+    cd "$kb_dir"
+    
+    if git pull --quiet 2>&1; then
+      ((updated++)) || true
+    else
+      log_warn "    Failed to update $kb_name"
+    fi
+  done
+  
+  log_success "Updated $updated KB(s)"
+  
+  # Resync seats
+  cmd_seat_sync
+}
+
+# ============================================================================
+# COMMAND: kb list
+# ============================================================================
+
+cmd_kb_list() {
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found"
+  
+  echo -e "${BLUE}Knowledge Bases:${NC}"
+  echo ""
+  
+  jq -r '.kbs[] | "  \(.name) | \(.repo) | Auto-update: \(.auto_update)"' "$ssot_dir/workstation.json" 2>/dev/null || echo "  No KBs found"
+}
+
+# ============================================================================
+# COMMAND: backup
+# ============================================================================
+
+cmd_backup() {
+  local ssot_dir
+  ssot_dir=$(find_ssot) || die "No workstation.json found"
+  
+  log_info "Running full backup..."
+  
+  for seat_id in $(jq -r '.seats[].id' "$ssot_dir/workstation.json" 2>/dev/null); do
+    local workspace_path
+    workspace_path=$(get_seat_workspace "$ssot_dir" "$seat_id")
+    local backup_path
+    backup_path=$(get_seat_backup_path "$ssot_dir" "$seat_id")
+    
+    [[ -d "$workspace_path" ]] || continue
+    
+    log_info "  Backing up: $seat_id"
+    
+    mkdir -p "$backup_path/archives"
+    local archive="$backup_path/archives/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    
+    tar -czf "$archive" -C "$workspace_path" \
+      AGENT.md SOUL.md MEMORY.md TOOLS.md IDENTITY.md HEARTBEAT.md memory/ 2>/dev/null || true
+    
+    # Cleanup old archives
+    find "$backup_path/archives" -name "backup-*.tar.gz" -mtime +30 -delete 2>/dev/null || true
+  done
+  
+  # Commit SSOT
+  cd "$ssot_dir"
+  if ! git diff --quiet 2>/dev/null; then
+    git add -A > /dev/null 2>&1
+    git commit -m "Backup: $(date +%Y-%m-%d %H:%M)" > /dev/null 2>&1 || true
+  fi
+  
+  log_success "Backup complete"
+}
+
+# ============================================================================
+# COMMAND: status
+# ============================================================================
+
+cmd_status() {
+  local ssot_dir
+  ssot_dir=$(find_ssot 2>/dev/null) || { echo "Not in an SSOT directory"; exit 1; }
+  
+  local config_file="$ssot_dir/workstation.json"
+  local org_name
+  org_name=$(jq -r '.organization.name' "$config_file")
+  
+  echo -e "${BLUE}=== Workstation Status ===${NC}"
+  echo "Organization: $org_name"
+  echo "SSOT: $ssot_dir"
+  echo ""
+  
+  # Seats
+  echo -e "${BLUE}Seats:${NC}"
+  jq -r '.seats[] | "  \(.id) (\(.role)) - \(.status // "unknown") - Last sync: \(.last_sync // "never")"' "$config_file" 2>/dev/null || echo "  None"
+  
+  echo ""
+  
+  # Active workspace
+  echo -e "${BLUE}Active Workspace:${NC}"
+  if [[ -L "$OPENCLAW_HOME/workspace" ]]; then
+    readlink "$OPENCLAW_HOME/workspace"
+  else
+    echo "  None"
+  fi
+  
+  echo ""
+  
+  # KBs
+  echo -e "${BLUE}KBs:${NC}"
+  jq -r '.kbs[] | "  \(.name)"' "$config_file" 2>/dev/null || echo "  None"
+  
+  echo ""
+  
+  # Git status
+  echo -e "${BLUE}Git Status:${NC}"
+  cd "$ssot_dir"
+  git status -s || echo "  Clean"
+}
+
+# ============================================================================
+# COMMAND: doctor
+# ============================================================================
+
+cmd_doctor() {
+  echo -e "${BLUE}=== Workstation Doctor ===${NC}"
+  echo ""
+  
+  local errors=0
+  
+  # Check dependencies
+  echo -n "Checking jq... "
+  if command -v jq >&1 2>&1; then
+    log_success "found"
+  else
+    log_error "missing"
+    ((errors++))
+  fi
+  
+  echo -n "Checking git... "
+  if command -v git >&1 2>&1; then
+    log_success "found"
+  else
+    log_error "missing"
+    ((errors++))
+  fi
+  
+  echo -n "Checking OpenClaw... "
+  if command -v openclaw >&1 2>&1; then
+    log_success "found"
+  else
+    log_warn "not found (optional)"
+  fi
+  
+  echo ""
+  
+  # Check directories
+  echo -n "Checking WORKSTATION_ROOT ($WORKSTATION_ROOT)... "
+  if [[ -d "$WORKSTATION_ROOT" ]]; then
+    log_success "exists"
+  else
+    log_warn "does not exist"
+  fi
+  
+  echo -n "Checking OPENCLAW_HOME ($OPENCLAW_HOME)... "
+  if [[ -d "$OPENCLAW_HOME" ]]; then
+    log_success "exists"
+  else
+    log_warn "does not exist"
+  fi
+  
+  echo ""
+  
+  # Check SSOT if in one
+  if ssot_dir=$(find_ssot 2>/dev/null); then
+    log_success "Found SSOT at: $ssot_dir"
+    
+    echo -n "Validating workstation.json... "
+    if jq empty "$ssot_dir/workstation.json" 2>&1; then
+      log_success "valid JSON"
+    else
+      log_error "invalid JSON"
+      ((errors++))
+    fi
+  fi
+  
+  echo ""
+  
+  if [[ $errors -eq 0 ]]; then
+    log_success "All checks passed"
+  else
+    log_error "$errors error(s) found"
+    exit 1
+  fi
+}
+
+# ============================================================================
+# HELP
+# ============================================================================
+
+cmd_help() {
+  cat << 'EOF'
+Workstation CLI - Organization Manager for OpenClaw
+
+USAGE:
+  workstation <command> [options]
+
+COMMANDS:
+  General:
+    version              Show version information
+    doctor               Check installation and dependencies
+    help                 Show this help message
+    status               Show current status
+
+  Organization:
+    init <name>          Initialize new organization SSOT
+
+  Seats (Agents):
+    seat create <id> [--role <role>] [--model <model>]
+                         Create new agent seat
+    seat activate <id>   Activate seat (switch workspace)
+    seat list            List all seats
+    seat sync [id]       Sync seat(s) with SSOT
+
+  Knowledge Bases:
+    kb add <name> <repo>  Add Knowledge Base
+    kb update            Update all KBs
+    kb list              List all KBs
+
+  Maintenance:
+    backup               Full backup of all seats
+
+ENVIRONMENT:
+  WORKSTATION_ROOT       Root directory for organizations (default: ~/Workstation)
+  OPENCLAW_HOME          OpenClaw home directory (default: ~/.openclaw)
+  WORKSTATION_DEBUG      Enable debug output (set to 1)
+
+EXAMPLES:
+  # Initialize organization
+  workstation init MyCompany
+
+  # Create and activate seat
+  cd ~/Workstation/MyCompany-SSOT
+  workstation seat create developer --role backend
+  workstation seat activate developer
+
+  # Add KB and sync
+  workstation kb add KB-Core https://github.com/org/KB-Core.git
+  workstation seat sync
+
+  # Full backup
+  workstation backup
+
+For more information: https://github.com/agentzfactory/workstation
+EOF
+}
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+main() {
+  ensure_jq
+  
+  local cmd="${1:-help}"
+  shift || true
+  
+  case $cmd in
+    "version"|"-v"|"--version") cmd_version "$@" ;;
+    "help"|"-h"|"--help") cmd_help ;;
+    "doctor") cmd_doctor "$@" ;;
+    "status") cmd_status "$@" ;;
+    "init") cmd_init "$@" ;;
+    
+    "seat")
+      local sub="${1:-help}"
+      shift || true
+      case $sub in
+        "create") cmd_seat_create "$@" ;;
+        "activate") cmd_seat_activate "$@" ;;
+        "list") cmd_seat_list "$@" ;;
+        "sync") cmd_seat_sync "$@" ;;
+        *) cmd_help ;;
+      esac
+      ;;
+    
+    "kb")
+      local sub="${1:-help}"
+      shift || true
+      case $sub in
+        "add") cmd_kb_add "$@" ;;
+        "update") cmd_kb_update "$@" ;;
+        "list") cmd_kb_list "$@" ;;
+        *) cmd_help ;;
+      esac
+      ;;
+    
+    "backup") cmd_backup "$@" ;;
+    "sync") cmd_seat_sync "$@" ;;
+    
+    *) 
+      log_error "Unknown command: $cmd"
+      cmd_help
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
