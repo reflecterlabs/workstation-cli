@@ -1,245 +1,586 @@
 ---
 name: workstation
-description: Organization management for AI agents. Manage multi-agent teams, knowledge bases, and persistent memory across sessions. Use when organizing multiple AI agents, sharing knowledge between agents, or managing agent workspaces with OpenClaw. Triggers on requests like "create an agent workspace", "organize AI team", "share knowledge base", "manage agent memory", or when working with OpenClaw multi-agent setups.
+description: Enterprise-grade multi-agent organization system for OpenClaw. Manages agent teams, shared knowledge bases, persistent memory, and coordinated change workflows across distributed systems. Use when building AI teams, sharing knowledge between agents, managing production changes with approval workflows, or orchestrating multi-role agent collaborations.
 ---
 
-# Workstation Skill
+# Workstation v3.0 - Multi-Agent Organization System
 
-Manage AI agent organizations with structured workspaces, shared knowledge bases, and persistent memory.
+> **Enterprise-grade agent coordination for OpenClaw**
 
-## Quick Start
-
-```bash
-# Initialize organization
-workstation init MyOrg
-
-# Create agent seat
-cd ~/Workstation/MyOrg-SSOT
-workstation seat create developer --role backend
-
-# Activate
-workstation seat activate developer
-```
+Workstation transforms OpenClaw from a single-agent tool into a **multi-agent organization platform**, enabling teams of AI agents to collaborate with shared knowledge, persistent memory, and coordinated change management.
 
 ## Core Concepts
 
-### Organization (SSOT)
+### 🎭 Agent = Seat = Workspace
 
-Single Source of Truth - a git repository containing:
-- `workstation.json` - Central configuration
-- `KBs/` - Knowledge Bases (shared knowledge)
-- `_seats/` - Agent state backups
-- `Projects/` - Cross-agent projects
+In Workstation, these terms are interchangeable:
+- **Agent** (OpenClaw): Runtime entity with model, tools, sessions
+- **Seat** (Workstation): Persistent workspace with memory, KB access, role
+- **Workspace**: Physical directory with `AGENT.md`, `SOUL.md`, `MEMORY.md`
 
-### Seat
+```
+┌─────────────────────────────────────────────┐
+│           OpenClaw Gateway                  │
+├─────────────────────────────────────────────┤
+│  Agent: "developer"                         │
+│  ├── Workspace: ~/.openclaw/workspace-dev   │
+│  ├── Model: claude-opus-4                   │
+│  └── Sessions: agent:dev:main               │
+│                                             │
+│  Workstation Seat: "developer"              │
+│  ├── MEMORY.md (persistent learnings)       │
+│  ├── TOOLS.md (access & credentials)        │
+│  └── imports/KB-Core (shared knowledge)     │
+└─────────────────────────────────────────────┘
+```
 
-An agent workspace:
-- Individual workspace in `~/.openclaw/workspace-<seat>/`
-- Own AGENT.md, SOUL.md, MEMORY.md
-- Access to shared KBs via symlinks
-- Backed up to SSOT
+### 🏛️ SSOT (Single Source of Truth)
 
-### Knowledge Base
+Every organization has one git repository:
 
-Git repository with organizational knowledge:
-- Shared across seats
-- Version controlled
-- Updated via `workstation kb update`
+```
+Organization-SSOT/
+├── workstation.json          # Central configuration
+├── .locks.json               # Active resource locks
+├── KBs/                      # Knowledge Bases (git submodules)
+│   ├── KB-Core/              # Organizational standards
+│   ├── KB-Architecture/      # Architecture decisions
+│   └── KB-Runbooks/          # Operational procedures
+├── _proposals/               # Change proposals pending review
+│   └── 2026-03-07-001-migrate-db/
+│       ├── proposal.md
+│       ├── impact.md
+│       ├── rollback.md
+│       ├── STATUS            # pending|approved|executed
+│       └── APPROVALS         # Reviewer signatures
+├── _seats/                   # Seat state backups
+│   ├── developer/
+│   │   ├── snapshots/        # Point-in-time backups
+│   │   └── archives/         # Compressed history
+│   └── architect/
+├── Projects/                 # Cross-seat initiatives
+│   └── Project-API-v2/
+│       ├── spec.md
+│       └── roadmap.md
+└── handoffs/                 # Inter-seat handoff documents
+    └── from-architect-to-developer.md
+```
 
-## Commands
+### 📚 Knowledge Base System
+
+KBs are **git repositories** shared across all seats:
+
+```bash
+# Clone once, use everywhere
+workstation kb add KB-Security https://github.com/org/security-standards.git
+
+# Every seat gets symlinks:
+~/.openclaw/workspace-{seat}/imports/
+└── Organization/
+    ├── KB-Core -> ~/Workstation/SSOT/KBs/KB-Core/
+    ├── KB-Security -> ~/Workstation/SSOT/KBs/KB-Security/
+    └── KB-Architecture -> ~/Workstation/SSOT/KBs/KB-Architecture/
+```
+
+KBs are **read-only** in seats. Modify in SSOT, then:
+```bash
+workstation kb update  # Pulls latest, updates all seat symlinks
+```
+
+### 🧠 Two-Level Memory Architecture
+
+#### Level 1: MEMORY.md (Ingested Every Session)
+```markdown
+# Memory: {seat_id}
+
+## Current Focus
+Building authentication system v2
+
+## Key Decisions
+- JWT with asymmetric keys (decided 2026-03-06)
+- Redis for refresh tokens (not DB)
+
+## Active Projects
+- Project-API-v2: 70% complete
+  - Blocked on: security review
+  - Next: implement refresh endpoint
+
+## Important Context
+- Never use symmetric keys for JWT (lesson from v1)
+- Redis cluster: redis.internal:6379
+- Security contact: @security-lead
+```
+
+**Best practice**: Keep under 500 lines. Curate ruthlessly.
+
+#### Level 2: Daily Logs (memory/YYYY-MM-DD.md)
+```markdown
+# 2026-03-07
+
+## Session 1 (09:00-11:00)
+- Implemented JWT signing
+- Issue: Key rotation strategy unclear
+- Escalated to architect
+
+## Session 2 (14:00-16:00)  
+- Architect provided key rotation plan
+- Updated MEMORY.md with decision
+- Tests passing
+```
+
+Logs are **not auto-ingested**. Read on-demand when you need recent context.
+
+### 🔒 Change Coordination
+
+For critical changes (DB migrations, API changes, infra):
+
+```bash
+# 1. Create proposal
+workstation propose change \
+  --title "Add OAuth2 provider support" \
+  --resource "api:authentication" \
+  --impact high \
+  --reviewers "architect,security-lead"
+
+# 2. Lock resource
+workstation lock acquire api:authentication --ttl 4h
+
+# 3. Await approvals
+#    Other agents review in _proposals/2026-03-07-XXX/
+
+# 4. Execute when approved
+workstation proposal execute 2026-03-07-XXX
+
+# 5. Release lock
+workstation lock release api:authentication
+```
+
+## Quick Start
+
+### 1. Initialize Organization
+
+```bash
+# Install
+npm install -g openclaw  # Install OpenClaw first
+curl -fsSL https://raw.githubusercontent.com/reflecterlabs/workstation-cli/main/install.sh | bash
+
+# Create org
+workstation init MyOrg
+cd ~/Workstation/MyOrg-SSOT
+```
+
+### 2. Create Your First Seat
+
+```bash
+workstation seat create developer --role backend --model claude-opus-4
+
+# This creates:
+# - ~/.openclaw/workspace-developer/
+# - AGENT.md, SOUL.md, MEMORY.md, TOOLS.md
+# - ~/Workstation/MyOrg-SSOT/_seats/developer/
+```
+
+### 3. Configure OpenClaw
+
+```json
+// ~/.openclaw/openclaw.json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "developer",
+        "workspace": "~/.openclaw/workspace-developer",
+        "model": "anthropic/claude-opus-4",
+        "default": true
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "developer",
+      "match": { "channel": "discord" }
+    }
+  ]
+}
+```
+
+### 4. Start Working
+
+```bash
+workstation seat activate developer
+openclaw gateway restart
+
+# Agent now has:
+# - Its own MEMORY.md for persistent learnings
+# - Access to shared KBs
+# - Backup system active
+```
+
+## Multi-Agent Setup
+
+### Scenario: Development Team
+
+```bash
+workstation init DevTeam
+
+# Create specialized seats
+workstation seat create frontend --role frontend
+workstation seat create backend --role backend  
+workstation seat create architect --role system-design
+workstation seat create devops --role infrastructure
+
+# Add shared KBs
+workstation kb add KB-Standards https://github.com/org/standards.git
+workstation kb add KB-Architecture https://github.com/org/architecture.git
+```
+
+### OpenClaw Configuration
+
+```json
+{
+  "agents": {
+    "list": [
+      { "id": "frontend", "workspace": "~/.openclaw/workspace-frontend" },
+      { "id": "backend", "workspace": "~/.openclaw/workspace-backend" },
+      { "id": "architect", "workspace": "~/.openclaw/workspace-architect" },
+      { "id": "devops", "workspace": "~/.openclaw/workspace-devops" }
+    ]
+  },
+  "bindings": [
+    { "agentId": "frontend", "match": { "channel": "discord", "peer": { "id": "#frontend" } } },
+    { "agentId": "backend", "match": { "channel": "discord", "peer": { "id": "#backend" } } },
+    { "agentId": "architect", "match": { "channel": "telegram" } }
+  ]
+}
+```
+
+### Context Switching
+
+```bash
+# Developer hands off to architect for review
+workstation seat sync developer
+git commit -m "WIP: Auth system ready for review"
+
+workstation seat activate architect
+openclaw gateway restart
+# Architect now has access to developer's MEMORY.md
+
+# After review, architect hands back
+workstation seat sync architect
+workstation seat activate developer
+openclaw gateway restart
+```
+
+## Distributed Teams
+
+### Setup Across Multiple Machines
+
+```bash
+# Machine 1 (Developer in Paraguay)
+git clone github.com/org/DevTeam-SSOT.git ~/Workstation/DevTeam-SSOT
+cd ~/Workstation/DevTeam-SSOT
+workstation seat create dev-py --role backend
+
+# Machine 2 (Architect in Argentina)
+git clone github.com/org/DevTeam-SSOT.git ~/Workstation/DevTeam-SSOT
+cd ~/Workstation/DevTeam-SSOT
+workstation seat create architect-ar --role system-design
+
+# Machine 3 (DevOps in Cloud)
+git clone github.com/org/DevTeam-SSOT.git ~/Workstation/DevTeam-SSOT
+cd ~/Workstation/DevTeam-SSOT
+workstation seat create devops-cloud --role infrastructure
+```
+
+### Coordination Workflow
+
+```bash
+# Architect makes decision, updates KB
+echo "## Auth Pattern v2" >> KBs/KB-Architecture/auth.md
+git add KBs/ && git commit -m "Add auth pattern v2"
+git push origin main
+
+# Developer pulls changes
+git pull origin main
+workstation kb update
+# Now has latest auth pattern in imports/
+```
+
+## Advanced Features
+
+### Sub-Agent Orchestration
+
+Spawn specialized sub-agents for parallel work:
+
+```javascript
+// From main agent, spawn specialized workers
+sessions_spawn({
+  task: "Research OAuth2 best practices",
+  agentId: "architect",
+  label: "oauth-research",
+  timeout: 1800
+})
+
+sessions_spawn({
+  task: "Implement JWT middleware",
+  agentId: "backend",
+  label: "jwt-impl",
+  timeout: 3600
+})
+```
+
+### Change Proposals
+
+Critical changes require review:
+
+```bash
+# Create proposal
+workstation propose change \
+  --title "Migrate users table to UUID" \
+  --resource "db:production:users" \
+  --impact critical \
+  --reviewers "dba,architect,security"
+
+# Check status
+workstation proposals list --status pending
+
+# Review (as another agent)
+workstation proposal review 2026-03-07-001 --approve --as dba
+
+# Execute when approved
+workstation proposal execute 2026-03-07-001
+```
+
+### Automatic Backups
+
+Configure cron for automatic sync:
+
+```bash
+# crontab -e
+
+# Sync every hour
+0 * * * * cd ~/Workstation/MyOrg-SSOT && workstation seat sync
+
+# Update KBs every 4 hours
+0 */4 * * * cd ~/Workstation/MyOrg-SSOT && workstation kb update
+
+# Full backup daily
+0 2 * * * cd ~/Workstation/MyOrg-SSOT && workstation backup
+```
+
+## Best Practices
+
+### 1. Seat Hygiene
+
+**Keep MEMORY.md curated:**
+- Review weekly, archive old decisions
+- Link to KBs instead of duplicating
+- Use memory/ for transient logs only
+
+### 2. KB Maintenance
+
+**Organize knowledge hierarchically:**
+```
+KBs/
+├── KB-Core/              # Org-wide standards
+│   ├── coding-standards.md
+│   └── security-policies.md
+├── KB-Architecture/      # System design
+│   ├── patterns/
+│   └── decisions/
+└── KB-Runbooks/          # Operations
+    ├── deployment.md
+    └── incident-response.md
+```
+
+### 3. Change Management
+
+**Always use proposals for:**
+- Database schema changes
+- API breaking changes
+- Infrastructure modifications
+- Security policy updates
+
+### 4. Security
+
+**Never commit:**
+- API keys or secrets (use .env)
+- Personal access tokens
+- Production credentials
+
+**Always use:**
+- `.gitignore` for sensitive files
+- Environment variables for secrets
+- Lock files for critical resources
+
+## Commands Reference
 
 ### Organization
 ```bash
-workstation init <name>              # Create new organization
+workstation init <name>                    # Create organization
+workstation status                         # Show current state
+workstation doctor                         # Check installation
 ```
 
 ### Seats
 ```bash
-workstation seat create <id>         # Create agent workspace
-workstation seat activate <id>       # Switch active workspace
-workstation seat list                # List all seats
-workstation seat sync [id]           # Backup and sync
+workstation seat create <id> [opts]        # Create seat
+workstation seat activate <id>             # Switch to seat
+workstation seat list                      # List seats
+workstation seat sync [id]                 # Backup & sync
+workstation seat remove <id>               # Remove seat
 ```
 
 ### Knowledge Bases
 ```bash
-workstation kb add <name> <repo>     # Add KB from git
-workstation kb update                # Update all KBs
-workstation kb list                  # List KBs
+workstation kb add <name> <repo>           # Add KB
+workstation kb update [name]               # Update KBs
+workstation kb list                        # List KBs
+workstation kb remove <name>               # Remove KB
+```
+
+### Change Management
+```bash
+workstation propose change [opts]          # Create proposal
+workstation proposals list [filters]       # List proposals
+workstation proposal review <id> [action]  # Review proposal
+workstation proposal execute <id>          # Execute proposal
+
+workstation lock acquire <resource> [ttl]  # Lock resource
+workstation lock release <resource>        # Release lock
+workstation locks list                     # List locks
 ```
 
 ### Maintenance
 ```bash
-workstation backup                   # Full backup
-workstation status                   # Show status
-workstation doctor                   # Check installation
+workstation backup                         # Full backup
+workstation restore <seat> [snapshot]      # Restore seat
+workstation migrate <from> <to>            # Migrate seat
 ```
 
-## Agent Files
+## Integration with OpenClaw
 
-Each seat contains these files (see [templates/](assets/templates/)):
+### Workspace Files
 
-- **AGENT.md** - Operational manual, protocols, workflows
-- **SOUL.md** - Personality, values, communication style
-- **MEMORY.md** - Long-term curated memory
-- **TOOLS.md** - Available tools and access credentials
-- **HEARTBEAT.md** - Proactive task checklist
-- **IDENTITY.md** - Identity per channel
+Each seat workspace contains:
 
-## Memory System
+| File | Purpose | Ingested? |
+|------|---------|-----------|
+| `AGENT.md` | Operational manual, protocols | ✅ Always |
+| `SOUL.md` | Personality, values, tone | ✅ Always |
+| `IDENTITY.md` | Identity per channel | ✅ Once |
+| `MEMORY.md` | Curated long-term memory | ✅ Always |
+| `TOOLS.md` | Tools, credentials, access | ✅ On demand |
+| `HEARTBEAT.md` | Proactive tasks | ✅ If present |
+| `BOOTSTRAP.md` | First-run setup | ✅ Once, then delete |
 
-### Two-Level Architecture
+### Session Keys
 
-1. **MEMORY.md** (injected every session)
-   - Curated long-term memory
-   - Key learnings, decisions, contacts
-   - Keep under 500 lines
-
-2. **memory/YYYY-MM-DD.md** (on-demand)
-   - Daily activity logs
-   - Not auto-injected
-   - Rotated daily
-
-### Bootstrap Process
-
-New seats include BOOTSTRAP.md - a self-destructing onboarding ritual:
-1. Agent reads BOOTSTRAP.md on first startup
-2. Follows checklist to configure identity
-3. Deletes BOOTSTRAP.md when complete
-4. Documents completion in MEMORY.md
-
-## Change Orchestration
-
-For critical changes across distributed agents:
-
-### Create Proposal
-```bash
-workstation propose change \
-  --title "Add user_preferences table" \
-  --resource "database:production" \
-  --impact "high" \
-  --reviewers "architect,dba"
+```
+agent:developer:main                    # Main session
+agent:developer:subagent:uuid           # Sub-agent session
+agent:developer:cron:task-name          # Cron session
 ```
 
-### Review and Approve
-```bash
-workstation proposals list --status pending
-workstation proposal review 2026-03-07-001 --approve --as architect
+### Routing
+
+```json
+{
+  "bindings": [
+    {
+      "agentId": "developer",
+      "match": {
+        "channel": "discord",
+        "accountId": "dev-bot",
+        "peer": { "kind": "direct", "id": "@user123" }
+      }
+    }
+  ]
+}
 ```
 
-### Lock Resources
+## Troubleshooting
+
+### "Seat not found"
 ```bash
-workstation lock acquire database:production:users --ttl 4h
+# Check if seat exists in config
+jq '.seats[].id' workstation.json
+
+# If missing, recreate
+workstation seat create <id>
+```
+
+### "Workspace already active"
+```bash
+# Another process has the workspace open
+lsof ~/.openclaw/workspace-<seat>
+
+# Or force sync
+workstation seat sync <seat> --force
+```
+
+### "Lock conflict"
+```bash
+# Check who has the lock
 workstation locks list
-workstation lock release database:production:users
+
+# If stale (owner crashed), force release
+workstation lock release <resource> --force
 ```
 
-See [ORCHESTRATOR.md](ORCHESTRATOR.md) for complete workflow.
-
-## Installation
-
+### "KB sync failed"
 ```bash
-# Via curl
-curl -fsSL https://raw.githubusercontent.com/reflecterlabs/workstation-cli/main/install.sh | bash
+# Check KB status
+cd KBs/KB-Name && git status
 
-# Or from source
-git clone https://github.com/reflecterlabs/workstation-cli.git
-cd workstation-cli
-sudo make install
+# If conflicts, resolve manually
+git pull origin main
+# Fix conflicts
+git push origin main
 ```
 
 ## Architecture
 
 ```
-~/.openclaw/                          # OpenClaw runtime
-├── workspace/                        # Symlink to active seat
-├── workspace-developer/              # Individual seat
-└── openclaw.json                     # OpenClaw config
-
-~/Workstation/
-└── MyOrg-SSOT/                       # Organization SSOT
-    ├── workstation.json              # Central config
-    ├── KBs/KB-Core/                  # Knowledge Bases
-    ├── _seats/developer/             # Seat backups
-    └── templates/seat/               # Seat templates
+┌─────────────────────────────────────────────────────────────┐
+│                    OpenClaw Gateway                         │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              Agent Runtime                          │   │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐           │   │
+│  │  │  Agent   │ │  Agent   │ │  Agent   │           │   │
+│  │  │ (Seat 1) │ │ (Seat 2) │ │ (Seat 3) │           │   │
+│  │  └────┬─────┘ └────┬─────┘ └────┬─────┘           │   │
+│  │       │            │            │                  │   │
+│  │  ┌────▼────────────▼────────────▼────┐             │   │
+│  │  │        Workstation SSOT          │             │   │
+│  │  │  ┌─────┐ ┌─────┐ ┌─────┐         │             │   │
+│  │  │  │ KBs │ │Prop-│ │Proj-│         │             │   │
+│  │  │  │     │ │osals│ │ects │         │             │   │
+│  │  │  └──┬──┘ └──┬──┘ └──┬──┘         │             │   │
+│  │  │     └───────┴───────┘            │             │   │
+│  │  │            │                      │             │   │
+│  │  │  ┌─────────▼──────────┐           │             │   │
+│  │  │  │   Sync Engine      │           │             │   │
+│  │  │  │  (git + locks)     │           │             │   │
+│  │  │  └────────────────────┘           │             │   │
+│  │  └───────────────────────────────────┘             │   │
+│  └────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+         │           │           │
+    Discord     Telegram    WhatsApp
 ```
-
-## Scripts
-
-Use bundled scripts for common operations:
-
-- [scripts/sync-seat.sh](scripts/sync-seat.sh) - Synchronize single seat
-- [scripts/backup-all.sh](scripts/backup-all.sh) - Full backup
-- [scripts/auto-sync.sh](scripts/auto-sync.sh) - Cron automation
-- [scripts/propose-change.sh](scripts/propose-change.sh) - Create change proposal
-- [scripts/review-proposal.sh](scripts/review-proposal.sh) - Review workflow
-- [scripts/lock-manager.sh](scripts/lock-manager.sh) - Resource locking
-
-## References
-
-- [references/workflows.md](references/workflows.md) - Common workflows
-- [references/configuration.md](references/configuration.md) - Config options
-- [references/examples.md](references/examples.md) - Example organizations
-
-## CI/CD Integration
-
-GitHub Actions workflow in `.github/workflows/ci.yml`:
-
-```yaml
-- name: Setup Workstation
-  run: |
-    git config --global user.name "CI"
-    git config --global user.email "ci@example.com"
-    workstation init MyOrg
-    workstation seat create ci-agent
-```
-
-## Best Practices
-
-1. **Keep MEMORY.md concise** - Under 500 lines, curate regularly
-2. **Use descriptive seat IDs** - e.g., `backend-dev`, not `agent1`
-3. **Commit often** - Workstation auto-commits on sync
-4. **Use KBs for shared knowledge** - Don't duplicate in seats
-5. **Configure git user** - Required for commits
-
-## Common Patterns
-
-### Development Team
-```bash
-workstation init DevTeam
-workstation seat create frontend --role frontend
-workstation seat create backend --role backend
-workstation kb add standards https://github.com/org/standards.git
-```
-
-### Research Organization
-```bash
-workstation init ResearchLab
-workstation seat create researcher-1 --role data-science
-workstation seat create researcher-2 --role bioinformatics
-```
-
-### Multi-Project Agency
-```bash
-workstation init Agency
-workstation seat create client-a --role account-manager
-workstation seat create client-b --role account-manager
-workstation seat create analyst --role data-analyst
-```
-
-## Troubleshooting
-
-### "No workstation.json found"
-Navigate to an SSOT directory or run `workstation init <name>`.
-
-### "git config user.name/email needed"
-Configure git globally or per-repo before running workstation commands.
-
-### Sync failures
-Ensure git is configured and you have write access to the SSOT repository.
 
 ## Links
 
-- Repository: https://github.com/reflecterlabs/workstation-cli
-- Documentation: https://github.com/reflecterlabs/workstation-cli/blob/main/README.md
-- Issues: https://github.com/reflecterlabs/workstation-cli/issues
+- **Repository**: https://github.com/reflecterlabs/workstation-cli
+- **Documentation**: https://github.com/reflecterlabs/workstation-cli/blob/main/docs/
+- **Issues**: https://github.com/reflecterlabs/workstation-cli/issues
+- **OpenClaw**: https://docs.openclaw.ai
+
+## License
+
+MIT License - Reflecter Labs
+
+---
+
+**Built for AI-native organizations** 🤖⚡
