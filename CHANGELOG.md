@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-03-07
+
+### Added
+- **ORQ (Orchestration Queue) Protocol** - Multi-agent coordination system
+  - `workstation orq claim` - Claim files for editing with TTL
+  - `workstation orq release` - Release claims when done
+  - `workstation orq check` - Check file availability before editing
+  - `workstation orq status` - View all active claims across seats
+  - `workstation orq sync` - Sync claims from other seats
+  - `workstation orq clean` - Remove expired claims
+- File-based locking with automatic TTL expiration
+- Conflict detection for concurrent editing
+- Cross-seat claim visibility
+
+### Changed
+- Updated help documentation to include ORQ commands
+
 ## [2.0.0] - 2026-03-06
 
 ### Added

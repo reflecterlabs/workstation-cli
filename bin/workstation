@@ -13,7 +13,7 @@ set -euo pipefail
 # ============================================================================
 
 # shellcheck disable=SC2034
-readonly VERSION="2.0.0"
+readonly VERSION="2.1.0"
 readonly WORKSTATION_ROOT="${WORKSTATION_ROOT:-$HOME/Workstation}"
 readonly OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 
@@ -863,6 +863,14 @@ COMMANDS:
     kb update            Update all KBs
     kb list              List all KBs
 
+  Multi-Agent Coordination:
+    orq claim <file>     Claim a file for editing (--ttl, --reason)
+    orq release <file>   Release a claim
+    orq check <file>     Check if file is claimed
+    orq status           Show all active claims
+    orq sync             Sync claims from other seats
+    orq clean            Remove expired claims
+
   Maintenance:
     backup               Full backup of all seats
 
@@ -889,6 +897,321 @@ EXAMPLES:
 
 For more information: https://github.com/agentzfactory/workstation
 EOF
+}
+
+# ============================================================================
+# ORQ COMMANDS (Multi-agent coordination)
+# ============================================================================
+
+cmd_orq_help() {
+  cat << 'EOF'
+ORQ (Orchestration Queue) - Multi-agent coordination
+
+USAGE:
+  workstation orq <command> [options]
+
+COMMANDS:
+  claim <file>         Create a claim for editing a file
+                       Options: --ttl 30m, --reason "...", --concept "..."
+  release <file>       Release a claim (or --id <claim-id>)
+  check <file>         Check if a file is claimed by another seat
+  status               Show all active claims across seats
+  sync                 Sync claims from other seats
+  clean                Remove expired claims
+
+EXAMPLES:
+  workstation orq claim KB/docs/api.md --ttl 45m --reason "Updating docs"
+  workstation orq check KB/docs/api.md
+  workstation orq status
+  workstation orq release KB/docs/api.md
+
+EOF
+}
+
+cmd_orq_claim() {
+  local file_path=""
+  local ttl="30m"
+  local reason=""
+  local concept=""
+  
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --ttl|-t) ttl="$2"; shift 2 ;;
+      --reason|-r) reason="$2"; shift 2 ;;
+      --concept|-c) concept="$2"; shift 2 ;;
+      -*) log_error "Unknown option: $1"; exit 1 ;;
+      *) file_path="$1"; shift ;;
+    esac
+  done
+  
+  if [[ -z "$file_path" ]]; then
+    log_error "File path required"
+    cmd_orq_help
+    exit 1
+  fi
+  
+  local seat_dir
+  if ! seat_dir=$(find_ssot); then
+    log_error "Not in a Seat context"
+    exit 1
+  fi
+  
+  # Check for conflicts
+  if cmd_orq_check "$file_path" >/dev/null 2>&1; then
+    log_error "File is already claimed. Run 'workstation orq status' for details."
+    exit 1
+  fi
+  
+  # Generate claim
+  local claim_id="claim-$(date -u +%Y%m%d-%H%M%S)-$$"
+  local ttl_minutes
+  ttl_minutes=$(parse_ttl "$ttl")
+  local created
+  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local expires
+  expires=$(date -u -d "+${ttl_minutes} minutes" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v+"${ttl_minutes}"M +"%Y-%m-%dT%H:%M:%SZ")
+  
+  [[ -z "$concept" ]] && concept=$(basename "$file_path" .md)
+  [[ -z "$reason" ]] && reason="Editing $file_path"
+  
+  local seat_name
+  seat_name=$(basename "$seat_dir" | sed 's/Seat-//;s/-[A-Za-z]*$//')
+  
+  mkdir -p "$seat_dir/.orq"
+  local claims_file="$seat_dir/.orq/claims.yaml"
+  
+  if [[ ! -f "$claims_file" ]]; then
+    echo "claims: []" > "$claims_file"
+  fi
+  
+  # Append claim using yq if available, otherwise use sed
+  if command -v yq &>/dev/null; then
+    yq e '.claims += [{"id": "'"$claim_id"'", "concept": "'"$concept"'", "files": ["'"$file_path"'"], "created": "'"$created"'", "expires": "'"$expires"'", "ttl_minutes": '"$ttl_minutes"', "reason": "'"$reason"'", "seat": "'"$seat_name"'"}]' -i "$claims_file"
+  else
+    # Fallback: append manually
+    cat >> "$claims_file" << EOF
+  - id: "$claim_id"
+    concept: "$concept"
+    files:
+      - "$file_path"
+    created: "$created"
+    expires: "$expires"
+    ttl_minutes: $ttl_minutes
+    reason: "$reason"
+    seat: "$seat_name"
+EOF
+  fi
+  
+  log_success "Claim created: $claim_id"
+  log_info "File: $file_path"
+  log_info "TTL: ${ttl_minutes}m (expires: $expires)"
+}
+
+parse_ttl() {
+  local ttl="$1"
+  if [[ "$ttl" =~ ^([0-9]+)m$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  elif [[ "$ttl" =~ ^([0-9]+)h$ ]]; then
+    echo $((BASH_REMATCH[1] * 60))
+  elif [[ "$ttl" =~ ^([0-9]+)$ ]]; then
+    echo "$ttl"
+  else
+    echo "30"
+  fi
+}
+
+cmd_orq_release() {
+  local file_path=""
+  local claim_id=""
+  
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --id) claim_id="$2"; shift 2 ;;
+      -*) log_error "Unknown option: $1"; exit 1 ;;
+      *) file_path="$1"; shift ;;
+    esac
+  done
+  
+  if [[ -z "$file_path" && -z "$claim_id" ]]; then
+    log_error "File path or claim ID required"
+    cmd_orq_help
+    exit 1
+  fi
+  
+  local seat_dir
+  if ! seat_dir=$(find_ssot); then
+    log_error "Not in a Seat context"
+    exit 1
+  fi
+  
+  local claims_file="$seat_dir/.orq/claims.yaml"
+  if [[ ! -f "$claims_file" ]]; then
+    log_warn "No claims file found"
+    exit 0
+  fi
+  
+  if command -v yq &>/dev/null; then
+    if [[ -n "$claim_id" ]]; then
+      yq e 'del(.claims[] | select(.id == "'"$claim_id"'"))' -i "$claims_file"
+    else
+      yq e 'del(.claims[] | select(.files[] | contains("'"$file_path"'")))' -i "$claims_file"
+    fi
+    
+    local count
+    count=$(yq e '.claims | length' "$claims_file" 2>/dev/null || echo "0")
+    [[ "$count" == "0" ]] && echo "claims: []" > "$claims_file"
+  else
+    log_warn "yq not installed, manual cleanup may be needed"
+  fi
+  
+  log_success "Claim released"
+}
+
+cmd_orq_check() {
+  local file_path="$1"
+  if [[ -z "$file_path" ]]; then
+    log_error "File path required"
+    exit 1
+  fi
+  
+  local ssot_dir
+  if ! ssot_dir=$(find_ssot 2>/dev/null); then
+    log_error "Not in an SSOT context"
+    exit 1
+  fi
+  
+  local current_seat
+  current_seat=$(basename "$(dirname "$ssot_dir")" 2>/dev/null || echo "")
+  local now
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  
+  # Check all seats
+  local org_dir
+  org_dir=$(dirname "$(dirname "$ssot_dir")")
+  
+  for seat_dir in "$org_dir"/Seat-*; do
+    if [[ -d "$seat_dir/.orq" ]]; then
+      local claims_file="$seat_dir/.orq/claims.yaml"
+      if [[ -f "$claims_file" ]]; then
+        local seat_name
+        seat_name=$(basename "$seat_dir" | sed 's/Seat-//;s/-[A-Za-z]*$//')
+        
+        if command -v yq &>/dev/null; then
+          local claim
+          claim=$(yq e '.claims[] | select(.expires > "'$now'") | select(.files[] | contains("'"$file_path"'")) | "Seat: '"$seat_name"' Reason: " + .reason + " Expires: " + .expires' "$claims_file" 2>/dev/null)
+          
+          if [[ -n "$claim" && "$seat_name" != "$current_seat" ]]; then
+            log_warn "File is claimed: $claim"
+            return 1
+          fi
+        fi
+      fi
+    fi
+  done
+  
+  log_success "File is available for editing"
+  return 0
+}
+
+cmd_orq_status() {
+  local ssot_dir
+  if ! ssot_dir=$(find_ssot 2>/dev/null); then
+    log_error "Not in an SSOT context"
+    exit 1
+  fi
+  
+  local org_dir
+  org_dir=$(dirname "$(dirname "$ssot_dir")")
+  local now
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  
+  log_info "Active claims:"
+  local found=false
+  
+  for seat_dir in "$org_dir"/Seat-*; do
+    if [[ -d "$seat_dir/.orq" ]]; then
+      local claims_file="$seat_dir/.orq/claims.yaml"
+      if [[ -f "$claims_file" ]]; then
+        local seat_name
+        seat_name=$(basename "$seat_dir" | sed 's/Seat-//;s/-[A-Za-z]*$//')
+        
+        if command -v yq &>/dev/null; then
+          local count
+          count=$(yq e '[.claims[] | select(.expires > "'$now'")] | length' "$claims_file" 2>/dev/null || echo "0")
+          
+          if [[ "$count" -gt 0 ]]; then
+            found=true
+            echo ""
+            echo "📁 Seat: $seat_name"
+            yq e '.claims[] | select(.expires > "'$now'") | "  🔒 " + .id + " (expires: " + .expires + ")\n     Files: " + (.files | join(", ")) + "\n     Reason: " + .reason' "$claims_file" 2>/dev/null
+          fi
+        fi
+      fi
+    fi
+  done
+  
+  if [[ "$found" == false ]]; then
+    log_info "No active claims found"
+  fi
+}
+
+cmd_orq_sync() {
+  local seat_dir
+  if ! seat_dir=$(find_ssot); then
+    log_error "Not in a Seat context"
+    exit 1
+  fi
+  
+  local org_dir
+  org_dir=$(dirname "$(dirname "$seat_dir")")
+  local current_seat
+  current_seat=$(basename "$seat_dir" | sed 's/Seat-//;s/-[A-Za-z]*$//')
+  
+  mkdir -p "$seat_dir/.orq/claims.d"
+  
+  for other_seat in "$org_dir"/Seat-*; do
+    if [[ -d "$other_seat/.orq" ]]; then
+      local other_name
+      other_name=$(basename "$other_seat" | sed 's/Seat-//;s/-[A-Za-z]*$//')
+      
+      if [[ "$other_name" != "$current_seat" ]]; then
+        local claims_file="$other_seat/.orq/claims.yaml"
+        if [[ -f "$claims_file" ]]; then
+          cp "$claims_file" "$seat_dir/.orq/claims.d/${other_name}.yaml"
+          log_info "Synced claims from: $other_name"
+        fi
+      fi
+    fi
+  done
+  
+  log_success "Sync complete"
+}
+
+cmd_orq_clean() {
+  local seat_dir
+  if ! seat_dir=$(find_ssot); then
+    log_error "Not in a Seat context"
+    exit 1
+  fi
+  
+  local claims_file="$seat_dir/.orq/claims.yaml"
+  if [[ ! -f "$claims_file" ]]; then
+    log_info "No claims file found"
+    exit 0
+  fi
+  
+  local now
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  
+  if command -v yq &>/dev/null; then
+    yq e 'del(.claims[] | select(.expires < "'$now'"))' -i "$claims_file"
+    local count
+    count=$(yq e '.claims | length' "$claims_file" 2>/dev/null || echo "0")
+    [[ "$count" == "0" ]] && echo "claims: []" > "$claims_file"
+    log_success "Expired claims cleaned"
+  else
+    log_warn "yq not installed, cannot clean claims automatically"
+  fi
 }
 
 # ============================================================================
@@ -933,6 +1256,20 @@ main() {
     
     "backup") cmd_backup "$@" ;;
     "sync") cmd_seat_sync "$@" ;;
+    
+    "orq")
+      local sub="${1:-help}"
+      shift || true
+      case $sub in
+        "claim") cmd_orq_claim "$@" ;;
+        "release") cmd_orq_release "$@" ;;
+        "check") cmd_orq_check "$@" ;;
+        "status") cmd_orq_status "$@" ;;
+        "sync") cmd_orq_sync "$@" ;;
+        "clean") cmd_orq_clean "$@" ;;
+        *) cmd_orq_help ;;
+      esac
+      ;;
     
     *) 
       log_error "Unknown command: $cmd"
