@@ -1,6 +1,6 @@
 ---
 name: workstation
-description: Enterprise-grade multi-agent organization system for OpenClaw. Manages agent teams, shared knowledge bases, persistent memory, and coordinated change workflows across distributed systems. Use when building AI teams, sharing knowledge between agents, managing production changes with approval workflows, or orchestrating multi-role agent collaborations.
+description: Enterprise-grade multi-agent organization system for OpenClaw with ORQ coordination protocol. Manages agent teams, shared knowledge bases, persistent memory, and file-level locking for coordinated editing across distributed systems. CRITICAL - Agents MUST check ORQ protocol before editing shared files to prevent conflicts. Use when building AI teams, sharing knowledge between agents, managing production changes with approval workflows, or orchestrating multi-role agent collaborations.
 ---
 
 # Workstation v3.0 - Multi-Agent Organization System
@@ -8,6 +8,124 @@ description: Enterprise-grade multi-agent organization system for OpenClaw. Mana
 > **Enterprise-grade agent coordination for OpenClaw**
 
 Workstation transforms OpenClaw from a single-agent tool into a **multi-agent organization platform**, enabling teams of AI agents to collaborate with shared knowledge, persistent memory, and coordinated change management.
+
+## ⚠️ IMPORTANT: Multi-Agent Coordination Protocol (ORQ)
+
+When working in a Workstation environment, **YOU MUST** follow the ORQ (Orchestration Queue) protocol to avoid conflicts with other agents.
+
+### Agent Auto-Configuration
+
+**When you start a session in a Workstation seat, automatically:**
+
+1. **Detect Workstation context:**
+   ```bash
+   # Check if you're in a Workstation environment
+   if [[ -d ".openclaw/workspace" && -f "workstation.json" ]] || \
+      [[ -d "../.openclaw/workspace" ]]; then
+     echo "Workstation environment detected"
+   fi
+   ```
+
+2. **Check ORQ status immediately:**
+   ```bash
+   # At session start, ALWAYS run:
+   workstation orq clean     # Remove expired claims
+   workstation orq status    # See what others are doing
+   ```
+
+3. **Read seat configuration:**
+   ```bash
+   # Your seat has configuration in:
+   # - .openclaw/workspace/AGENT.md  (how to operate)
+   # - .openclaw/workspace/SOUL.md   (who you are)
+   # - .openclaw/workspace/MEMORY.md (what you know)
+   # - .openclaw/workspace/TOOLS.md  (what you can use)
+   # - .orq/claims.yaml              (your active claims)
+   ```
+
+4. **Understand your role from AGENT.md:**
+   - Read AGENT.md first
+   - It contains protocols specific to this seat
+   - Follow any seat-specific rules there
+
+### Automatic ORQ Detection
+
+Check if you're in an ORQ-enabled environment:
+```bash
+# Look for .orq directory in your seat
+ls -la ~/.openclaw/workspace-*/.orq/ 2>/dev/null && echo "ORQ ENABLED" || echo "Standard mode"
+```
+
+### ORQ Protocol for Agents
+
+**Before editing ANY shared file (KBs, SSOT, Projects):**
+
+1. **Check availability:**
+   ```bash
+   workstation orq check KB/path/to/file.md
+   ```
+
+2. **If available, create claim:**
+   ```bash
+   workstation orq claim KB/path/to/file.md --ttl 30m --reason "Updating section X"
+   ```
+
+3. **Edit the file**
+
+4. **Commit and release:**
+   ```bash
+   git add KB/path/to/file.md
+   git commit -m "update: description"
+   git push
+   workstation orq release KB/path/to/file.md
+   ```
+
+**If file is claimed by another agent:**
+- Wait for them to finish
+- Or coordinate via the claim reason
+- Never edit without checking first
+
+### Interpreting ORQ Claims
+
+When you see `.orq/claims.yaml` in another seat:
+
+```yaml
+claims:
+  - id: "claim-20260307-001"
+    concept: "api-documentation"
+    files:
+      - "KB/docs/api.md"
+    created: "2026-03-07T07:30:00Z"
+    expires: "2026-03-07T08:00:00Z"  # Check this!
+    ttl_minutes: 30
+    reason: "Adding OAuth2 endpoints"
+    seat: "backend"
+```
+
+**Rules:**
+- If `expires` is in the future → **DON'T EDIT** those files
+- If `expires` is in the past → Claim is stale, ignore it
+- You can READ files anytime, just don't modify
+
+### Automatic Protocol Enforcement
+
+**YOU SHOULD** automatically run these checks:
+
+1. **At session start:**
+   ```bash
+   workstation orq status    # See what others are doing
+   workstation orq clean     # Remove expired claims
+   ```
+
+2. **Before any edit:**
+   ```bash
+   workstation orq check <file>  # Verify availability
+   ```
+
+3. **After completing work:**
+   ```bash
+   workstation orq release <file>  # Free the resource
+   ```
 
 ## Core Concepts
 
@@ -30,6 +148,7 @@ In Workstation, these terms are interchangeable:
 │  Workstation Seat: "developer"              │
 │  ├── MEMORY.md (persistent learnings)       │
 │  ├── TOOLS.md (access & credentials)        │
+│  ├── .orq/claims.yaml (ORQ coordination)    │  ← ORQ enabled
 │  └── imports/KB-Core (shared knowledge)     │
 └─────────────────────────────────────────────┘
 ```
@@ -41,29 +160,17 @@ Every organization has one git repository:
 ```
 Organization-SSOT/
 ├── workstation.json          # Central configuration
-├── .locks.json               # Active resource locks
 ├── KBs/                      # Knowledge Bases (git submodules)
 │   ├── KB-Core/              # Organizational standards
 │   ├── KB-Architecture/      # Architecture decisions
 │   └── KB-Runbooks/          # Operational procedures
 ├── _proposals/               # Change proposals pending review
-│   └── 2026-03-07-001-migrate-db/
-│       ├── proposal.md
-│       ├── impact.md
-│       ├── rollback.md
-│       ├── STATUS            # pending|approved|executed
-│       └── APPROVALS         # Reviewer signatures
 ├── _seats/                   # Seat state backups
-│   ├── developer/
-│   │   ├── snapshots/        # Point-in-time backups
-│   │   └── archives/         # Compressed history
-│   └── architect/
+│   └── developer/
+│       ├── snapshots/        # Point-in-time backups
+│       └── archives/         # Compressed history
 ├── Projects/                 # Cross-seat initiatives
-│   └── Project-API-v2/
-│       ├── spec.md
-│       └── roadmap.md
 └── handoffs/                 # Inter-seat handoff documents
-    └── from-architect-to-developer.md
 ```
 
 ### 📚 Knowledge Base System
@@ -130,9 +237,68 @@ Building authentication system v2
 
 Logs are **not auto-ingested**. Read on-demand when you need recent context.
 
-### 🔒 Change Coordination
+### 🔒 Multi-Agent Coordination (ORQ Protocol)
 
-For critical changes (DB migrations, API changes, infra):
+For editing shared files (KBs, SSOT, Projects), use the **ORQ (Orchestration Queue)** protocol:
+
+```bash
+# 1. Check if file is available
+workstation orq check KB/architecture/auth.md
+
+# 2. If available, claim it
+workstation orq claim KB/architecture/auth.md \
+  --ttl 45m \
+  --reason "Adding OAuth2 flow documentation"
+
+# 3. Edit the file...
+# (your work here)
+
+# 4. Commit changes
+git add KB/architecture/auth.md
+git commit -m "docs: add OAuth2 flow documentation"
+git push
+
+# 5. Release the claim
+workstation orq release KB/architecture/auth.md
+```
+
+#### ORQ Command Reference
+
+```bash
+workstation orq claim <file> [options]     # Claim file for editing
+  --ttl 30m        # Time to live (15m, 30m, 1h, 2h)
+  --reason "..."   # Why you're editing
+  --concept "..."  # Concept/section being edited
+
+workstation orq release <file> [--id <id>]  # Release claim
+workstation orq check <file>                # Check availability
+workstation orq status                      # Show all active claims
+workstation orq sync                        # Sync claims from other seats
+workstation orq clean                       # Remove expired claims
+```
+
+#### Claim File Format
+
+Claims are stored in `.orq/claims.yaml`:
+
+```yaml
+claims:
+  - id: "claim-20260307-001"
+    concept: "oauth2-docs"
+    files:
+      - "KB/architecture/auth.md"
+    created: "2026-03-07T07:30:00Z"
+    expires: "2026-03-07T08:15:00Z"  # TTL determines this
+    ttl_minutes: 45
+    reason: "Adding OAuth2 flow documentation"
+    seat: "developer"
+```
+
+**Expired claims are ignored automatically.** No manual cleanup needed.
+
+### 📋 Change Proposals
+
+For major changes requiring review:
 
 ```bash
 # 1. Create proposal
@@ -142,17 +308,14 @@ workstation propose change \
   --impact high \
   --reviewers "architect,security-lead"
 
-# 2. Lock resource
-workstation lock acquire api:authentication --ttl 4h
+# 2. Check status
+workstation proposals list --status pending
 
-# 3. Await approvals
-#    Other agents review in _proposals/2026-03-07-XXX/
+# 3. Review (as another agent)
+workstation proposal review 2026-03-07-001 --approve --as dba
 
 # 4. Execute when approved
-workstation proposal execute 2026-03-07-XXX
-
-# 5. Release lock
-workstation lock release api:authentication
+workstation proposal execute 2026-03-07-001
 ```
 
 ## Quick Start
@@ -395,11 +558,42 @@ KBs/
 
 ### 3. Change Management
 
-**Always use proposals for:**
+**Always use ORQ when editing shared files:**
+```bash
+# Before editing ANY shared file (KB, SSOT, Project)
+workstation orq check KB/docs/api.md
+workstation orq claim KB/docs/api.md --ttl 30m --reason "Updating docs"
+
+# Edit, commit, push
+git add KB/docs/api.md && git commit -m "docs: update API"
+git push
+
+# Always release when done
+workstation orq release KB/docs/api.md
+```
+
+**Use proposals for major changes:**
 - Database schema changes
 - API breaking changes
 - Infrastructure modifications
 - Security policy updates
+
+### 4. Multi-Agent Etiquette
+
+**Before starting work:**
+1. Run `workstation orq status` to see what others are doing
+2. Run `workstation orq clean` to remove stale claims
+3. Check if your target files are available
+
+**While working:**
+- Keep claims small (one concept per claim)
+- Use reasonable TTLs (15-60 minutes)
+- Write clear reasons so other agents understand
+
+**When done:**
+- Always release your claims
+- Sync your seat: `workstation seat sync`
+- Update MEMORY.md with key decisions
 
 ### 4. Security
 
@@ -445,10 +639,20 @@ workstation propose change [opts]          # Create proposal
 workstation proposals list [filters]       # List proposals
 workstation proposal review <id> [action]  # Review proposal
 workstation proposal execute <id>          # Execute proposal
+```
 
-workstation lock acquire <resource> [ttl]  # Lock resource
-workstation lock release <resource>        # Release lock
-workstation locks list                     # List locks
+### Multi-Agent Coordination (ORQ)
+```bash
+workstation orq claim <file> [opts]        # Claim file for editing
+  --ttl 30m        # Time limit (15m, 30m, 1h, 2h)
+  --reason "..."   # Why you're editing
+  --concept "..."  # Concept being edited
+
+workstation orq release <file> [--id <id>] # Release claim
+workstation orq check <file>               # Check if file is available
+workstation orq status                     # Show all active claims
+workstation orq sync                       # Sync claims from other seats
+workstation orq clean                      # Remove expired claims
 ```
 
 ### Maintenance
@@ -519,13 +723,16 @@ lsof ~/.openclaw/workspace-<seat>
 workstation seat sync <seat> --force
 ```
 
-### "Lock conflict"
+### "ORQ/Claim conflict"
 ```bash
-# Check who has the lock
-workstation locks list
+# Check who has claimed the file
+workstation orq status
 
-# If stale (owner crashed), force release
-workstation lock release <resource> --force
+# If stale (expired), clean it
+workstation orq clean
+
+# If you need to override (emergency only)
+workstation orq release <file> --force
 ```
 
 ### "KB sync failed"
