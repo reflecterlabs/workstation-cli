@@ -108,6 +108,34 @@ New seats include BOOTSTRAP.md - a self-destructing onboarding ritual:
 3. Deletes BOOTSTRAP.md when complete
 4. Documents completion in MEMORY.md
 
+## Change Orchestration
+
+For critical changes across distributed agents:
+
+### Create Proposal
+```bash
+workstation propose change \
+  --title "Add user_preferences table" \
+  --resource "database:production" \
+  --impact "high" \
+  --reviewers "architect,dba"
+```
+
+### Review and Approve
+```bash
+workstation proposals list --status pending
+workstation proposal review 2026-03-07-001 --approve --as architect
+```
+
+### Lock Resources
+```bash
+workstation lock acquire database:production:users --ttl 4h
+workstation locks list
+workstation lock release database:production:users
+```
+
+See [ORCHESTRATOR.md](ORCHESTRATOR.md) for complete workflow.
+
 ## Installation
 
 ```bash
@@ -143,6 +171,9 @@ Use bundled scripts for common operations:
 - [scripts/sync-seat.sh](scripts/sync-seat.sh) - Synchronize single seat
 - [scripts/backup-all.sh](scripts/backup-all.sh) - Full backup
 - [scripts/auto-sync.sh](scripts/auto-sync.sh) - Cron automation
+- [scripts/propose-change.sh](scripts/propose-change.sh) - Create change proposal
+- [scripts/review-proposal.sh](scripts/review-proposal.sh) - Review workflow
+- [scripts/lock-manager.sh](scripts/lock-manager.sh) - Resource locking
 
 ## References
 
