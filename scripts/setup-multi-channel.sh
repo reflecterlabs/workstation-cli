@@ -1,0 +1,323 @@
+#!/bin/bash
+#
+# Multi-Channel Agent Organization Setup Script
+# Configures multiple agents on a single machine with separate communication channels
+#
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Configuration
+ORG_NAME="${1:-}"
+if [[ -z "$ORG_NAME" ]]; then
+    echo "Usage: $0 <organization-name>"
+    echo ""
+    echo "Example: $0 MiStartup"
+    exit 1
+fi
+
+AGENTS=("pm" "design" "developer")
+CHANNELS=("telegram" "whatsapp" "discord")
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  Multi-Channel Agent Organization Setup                  ║"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
+echo "Organization: $ORG_NAME"
+echo "Agents: ${AGENTS[*]}"
+echo "Channels: ${CHANNELS[*]}"
+echo ""
+
+# Step 1: Check prerequisites
+log_info "Checking prerequisites..."
+
+if ! command -v workstation >/dev/null 2>&1; then
+    log_error "workstation CLI not found. Install first:"
+    echo "  sudo cp bin/workstation /usr/local/bin/"
+    exit 1
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+    log_error "git not found. Please install git."
+    exit 1
+fi
+
+log_success "Prerequisites OK"
+echo ""
+
+# Step 2: Create organization
+log_info "Creating organization: $ORG_NAME"
+
+if [[ -d "$HOME/Workstation/${ORG_NAME}-SSOT" ]]; then
+    log_warn "Organization already exists. Skipping init."
+else
+    workstation init "$ORG_NAME"
+    log_success "Organization created"
+fi
+
+cd "$HOME/Workstation/${ORG_NAME}-SSOT"
+
+# Step 3: Create agent seats
+log_info "Creating agent seats..."
+
+for i in "${!AGENTS[@]}"; do
+    agent="${AGENTS[$i]}"
+    
+    if [[ -d "$HOME/.openclaw/workspace-${agent}" ]]; then
+        log_warn "Seat '${agent}' already exists. Skipping."
+    else
+        case "$agent" in
+            pm)
+                workstation seat create "$agent" --role "product-manager"
+                ;;
+            design)
+                workstation seat create "$agent" --role "designer"
+                ;;
+            developer)
+                workstation seat create "$agent" --role "developer"
+                ;;
+        esac
+        log_success "Created seat: $agent"
+    fi
+done
+
+echo ""
+
+# Step 4: Copy role-specific templates
+log_info "Copying agent templates..."
+
+TEMPLATE_BASE="$(dirname "$0")/../templates/organizations/startup-team"
+
+for agent in "${AGENTS[@]}"; do
+    target_dir="$HOME/.openclaw/workspace-${agent}"
+    
+    # Map agent to template directory
+    case "$agent" in
+        pm)
+            template_dir="${TEMPLATE_BASE}/pm"
+            ;;
+        design)
+            template_dir="${TEMPLATE_BASE}/marketing"  # Marketing template as base for design
+            ;;
+        developer)
+            template_dir="${TEMPLATE_BASE}/developer"
+            ;;
+    esac
+    
+    if [[ -d "$template_dir" ]]; then
+        cp "$template_dir/"*.md "$target_dir/" 2>/dev/null || true
+        log_success "Copied templates for: $agent"
+    else
+        log_warn "Template not found for: $agent"
+    fi
+done
+
+echo ""
+
+# Step 5: Create channel configuration
+log_info "Creating channel configurations..."
+
+mkdir -p "$HOME/.openclaw/agents"
+
+for i in "${!AGENTS[@]}"; do
+    agent="${AGENTS[$i]}"
+    channel="${CHANNELS[$i]}"
+    
+    agent_config_dir="$HOME/.openclaw/agents/$agent"
+    mkdir -p "$agent_config_dir"
+    
+    cat > "$agent_config_dir/channel.conf" << EOF
+# Agent: $agent
+# Channel: $channel
+# Organization: $ORG_NAME
+# Workspace: ~/.openclaw/workspace-$agent
+
+CHANNEL=$channel
+AGENT_ID=$agent
+WORKSPACE=~/.openclaw/workspace-$agent
+ORGANIZATION=$ORG_NAME
+SSOT=~/Workstation/${ORG_NAME}-SSOT
+
+# Channel-specific settings
+# Fill these in after configuring the channel:
+EOF
+
+    # Add channel-specific placeholders
+    case "$channel" in
+        telegram)
+            cat >> "$agent_config_dir/channel.conf" << EOF
+# Telegram Settings:
+# TELEGRAM_BOT_TOKEN=your_bot_token_here
+# TELEGRAM_ALLOWED_CHATS=private,group
+EOF
+            ;;
+        whatsapp)
+            cat >> "$agent_config_dir/channel.conf" << EOF
+# WhatsApp Settings:
+# WHATSAPP_SESSION_NAME=${agent}_session
+# WHATSAPP_PHONE_NUMBER=your_number_here
+EOF
+            ;;
+        discord)
+            cat >> "$agent_config_dir/channel.conf" << EOF
+# Discord Settings:
+# DISCORD_BOT_TOKEN=your_bot_token_here
+# DISCORD_GUILD_ID=your_guild_id
+# DISCORD_CHANNEL=agent-${agent}
+EOF
+            ;;
+    esac
+    
+    log_success "Created config for: $agent ($channel)"
+done
+
+echo ""
+
+# Step 6: Create cross-reference documentation
+log_info "Creating cross-reference documentation..."
+
+mkdir -p "KBs/KB-Core"
+
+cat > "KBs/KB-Core/AGENT_CHANNELS.md" << EOF
+# Agent Communication Channels
+
+> Auto-generated by setup-multi-channel.sh
+> Organization: $ORG_NAME
+
+## Channel Mapping
+
+| Agent | Role | Channel | Config File |
+|-------|------|---------|-------------|
+EOF
+
+for i in "${!AGENTS[@]}"; do
+    agent="${AGENTS[$i]}"
+    channel="${CHANNELS[$i]}"
+    role=""
+    case "$agent" in
+        pm) role="Product Manager" ;;
+        design) role="Designer" ;;
+        developer) role="Developer" ;;
+    esac
+    echo "| $agent | $role | $channel | ~/.openclaw/agents/$agent/channel.conf |" >> "KBs/KB-Core/AGENT_CHANNELS.md"
+done
+
+cat >> "KBs/KB-Core/AGENT_CHANNELS.md" << 'EOF'
+
+## Coordination Protocol
+
+Since agents communicate on different channels, use:
+
+### 1. File Claims (Primary)
+```bash
+workstation claim src/file.js --ttl 60m
+```
+All agents see claims via workstation.json
+
+### 2. TICK.md Updates
+Each agent updates their TICK.md with status
+
+### 3. _proposals/ Directory
+Formal proposals for cross-agent requests
+
+### 4. Human Relay
+For urgent, real-time coordination
+
+## Quick Commands
+
+```bash
+# View all agent status
+workstation seat list
+
+# Check active claims
+workstation claims
+
+# Sync all agents
+for agent in pm design developer; do
+    workstation seat sync $agent
+done
+```
+EOF
+
+log_success "Created AGENT_CHANNELS.md"
+
+# Step 7: Create _proposals directory
+mkdir -p _proposals
+cat > _proposals/README.md << 'EOF'
+# Proposals
+
+Place cross-agent proposals here.
+
+Format: YYYY-MM-DD-from-to-description.md
+
+Example:
+- 2026-03-10-pm-to-design-landing-page.md
+- 2026-03-10-dev-to-pm-api-timeline.md
+EOF
+
+# Step 8: Commit everything
+log_info "Committing initial setup..."
+
+git add -A
+git commit -m "Initial multi-channel agent setup for $ORG_NAME
+
+Agents:
+- pm (telegram)
+- design (whatsapp)  
+- developer (discord)
+
+Coordination via workstation-cli and Git."
+
+log_success "Committed to Git"
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  Setup Complete!                                         ║"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
+echo "Organization: $ORG_NAME"
+echo "Location: ~/Workstation/${ORG_NAME}-SSOT"
+echo ""
+echo "Agents created:"
+for i in "${!AGENTS[@]}"; do
+    agent="${AGENTS[$i]}"
+    channel="${CHANNELS[$i]}"
+    echo "  • $agent ($channel)"
+    echo "    Workspace: ~/.openclaw/workspace-$agent"
+    echo "    Config: ~/.openclaw/agents/$agent/channel.conf"
+done
+echo ""
+echo "Next steps:"
+echo ""
+echo "1. Configure channel credentials:"
+echo "   Edit ~/.openclaw/agents/*/channel.conf"
+echo ""
+echo "2. Set up channel bots:"
+echo "   • Telegram: @BotFather → create bot → copy token"
+echo "   • WhatsApp: Link device → pair with OpenClaw"
+echo "   • Discord: Discord Developer Portal → create bot"
+echo ""
+echo "3. Activate and customize each agent:"
+echo "   workstation seat activate pm"
+echo "   # Edit IDENTITY.md, SOUL.md"
+echo "   # rm BOOTSTRAP.md when done"
+echo ""
+echo "4. Test coordination:"
+echo "   workstation seat sync"
+echo "   workstation claims"
+echo ""
+echo "5. Start OpenClaw gateways (one per agent):"
+echo "   See docs/MULTI_CHANNEL_SETUP.md"
+echo ""
