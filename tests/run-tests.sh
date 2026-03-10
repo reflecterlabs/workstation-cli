@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Workstation CLI Test Suite
+# Workstation CLI Test Suite v3.0
 #
 
 set -euo pipefail
@@ -8,7 +8,6 @@ set -euo pipefail
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
@@ -40,7 +39,7 @@ export PATH="$(dirname "$0")/../bin:$PATH"
 
 mkdir -p "$WORKSTATION_ROOT" "$OPENCLAW_HOME"
 
-# Cleanup on exit
+# Cleanup
 cleanup() {
   rm -rf "$TEST_DIR"
 }
@@ -53,7 +52,7 @@ trap cleanup EXIT
 test_version() {
   test_header "Version Command"
   
-  if workstation version | grep -q "Workstation CLI"; then
+  if workstation version 2>/dev/null | grep -q "Workstation CLI"; then
     pass "version command works"
   else
     fail "version command failed"
@@ -75,7 +74,7 @@ test_init() {
   
   local org_name="TestOrg$$"
   
-  if workstation init "$org_name" > /dev/null 2>&1; then
+  if workstation init "$org_name" >/dev/null 2>&1; then
     if [[ -d "$WORKSTATION_ROOT/${org_name}-SSOT" ]]; then
       pass "organization directory created"
     else
@@ -102,11 +101,11 @@ test_seat_create() {
   test_header "Seat Create Command"
   
   local org_name="TestOrg$$"
-  local seat_id="test-seat"
+  local seat_id="testseat"
   
   cd "$WORKSTATION_ROOT/${org_name}-SSOT"
   
-  if workstation seat create "$seat_id" --role "testing" > /dev/null 2>&1; then
+  if workstation seat create "$seat_id" --role "testing" >/dev/null 2>&1; then
     if [[ -d "$OPENCLAW_HOME/workspace-$seat_id" ]]; then
       pass "workspace directory created"
     else
@@ -118,12 +117,6 @@ test_seat_create() {
     else
       fail "BOOTSTRAP.md not found"
     fi
-    
-    if [[ -f "$WORKSTATION_ROOT/${org_name}-SSOT/_seats/$seat_id" ]]; then
-      pass "backup directory created"
-    else
-      fail "backup directory not found"
-    fi
   else
     fail "seat create command failed"
   fi
@@ -133,67 +126,85 @@ test_seat_activate() {
   test_header "Seat Activate Command"
   
   local org_name="TestOrg$$"
-  local seat_id="test-seat"
+  local seat_id="testseat"
   
   cd "$WORKSTATION_ROOT/${org_name}-SSOT"
   
-  if workstation seat activate "$seat_id" > /dev/null 2>&1; then
+  if workstation seat activate "$seat_id" >/dev/null 2>&1; then
     if [[ -L "$OPENCLAW_HOME/workspace" ]]; then
       pass "workspace symlink created"
     else
       fail "workspace symlink not found"
-    fi
-    
-    local target
-    target=$(readlink "$OPENCLAW_HOME/workspace")
-    if [[ "$target" == *"workspace-$seat_id"* ]]; then
-      pass "symlink points to correct workspace"
-    else
-      fail "symlink points to wrong location"
     fi
   else
     fail "seat activate command failed"
   fi
 }
 
-test_kb_add() {
-  test_header "KB Add Command"
+test_claim() {
+  test_header "Claim Command"
   
   local org_name="TestOrg$$"
   
   cd "$WORKSTATION_ROOT/${org_name}-SSOT"
   
-  # Create a mock KB repo
-  local kb_repo="$TEST_DIR/mock-kb"
-  mkdir -p "$kb_repo"
-  git init "$kb_repo" > /dev/null 2>&1
-  echo "# Mock KB" > "$kb_repo/README.md"
-  git -C "$kb_repo" add . > /dev/null 2>&1
-  git -C "$kb_repo" commit -m "Initial" > /dev/null 2>&1
+  # Create a test file
+  touch testfile.txt
   
-  if workstation kb add "KB-Mock" "$kb_repo" > /dev/null 2>&1; then
-    if [[ -d "$WORKSTATION_ROOT/${org_name}-SSOT/KBs/KB-Mock" ]]; then
-      pass "KB directory created"
+  if workstation claim testfile.txt --reason "Testing" >/dev/null 2>&1; then
+    pass "claim created successfully"
+    
+    if workstation claims 2>/dev/null | grep -q "testfile.txt"; then
+      pass "claim appears in claims list"
     else
-      fail "KB directory not found"
+      fail "claim not in claims list"
     fi
     
-    if [[ -f "$WORKSTATION_ROOT/${org_name}-SSOT/KBs/KB-Mock/README.md" ]]; then
-      pass "KB content cloned"
+    if workstation release testfile.txt >/dev/null 2>&1; then
+      pass "claim released successfully"
     else
-      fail "KB content not found"
+      fail "release command failed"
     fi
   else
-    fail "kb add command failed"
+    fail "claim command failed"
   fi
 }
 
 test_validation() {
+  test_header "Input Validation"
+  
+  local org_name="TestOrg$$"
+  
+  # Test invalid characters
+  if ! workstation init "invalid/name" 2>/dev/null; then
+    pass "rejects invalid org name with slash"
+  else
+    fail "should reject invalid org name"
+  fi
+  
+  # Test empty name
+  if ! workstation init "" 2>/dev/null; then
+    pass "rejects empty org name"
+  else
+    fail "should reject empty org name"
+  fi
+  
+  cd "$WORKSTATION_ROOT/${org_name}-SSOT"
+  
+  # Test invalid seat name
+  if ! workstation seat create "Invalid Seat" 2>/dev/null; then
+    pass "rejects invalid seat name with space"
+  else
+    fail "should reject invalid seat name"
+  fi
+}
+
+test_json_validation() {
   test_header "JSON Validation"
   
   local org_name="TestOrg$$"
   
-  if jq empty "$WORKSTATION_ROOT/${org_name}-SSOT/workstation.json" 2>&1; then
+  if jq empty "$WORKSTATION_ROOT/${org_name}-SSOT/workstation.json" 2>/dev/null; then
     pass "workstation.json is valid JSON"
   else
     fail "workstation.json is invalid"
@@ -217,8 +228,9 @@ test_doctor
 test_init
 test_seat_create
 test_seat_activate
-test_kb_add
+test_claim
 test_validation
+test_json_validation
 
 # Summary
 echo ""

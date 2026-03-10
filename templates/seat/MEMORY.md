@@ -1,65 +1,41 @@
-# Memory: {SEAT_ID}
+# MEMORY.md - Long-Term Memory
 
-**Organization**: {ORG_NAME}  
-**Created**: {DATE}  
-**Last Updated**: [Auto-update this]
+Curated memories, decisions, and context that survives sessions.
 
 ---
 
-## 🎯 Active Context
+## Profile
 
-### Current Focus
-- [What you're currently working on]
-
-### Recent Decisions
-- [Decision 1]: [Rationale and date]
-- [Decision 2]: [Rationale and date]
-
-### Blockers
-- [Blocker 1]: [Status and who to escalate to]
-- [Blocker 2]: [Status]
+- **Seat**: {SEAT_ID}
+- **Organization**: {ORG_NAME}
+- **Role**: {ROLE}
+- **Activated**: {DATE}
 
 ---
 
-## 📚 Key Learnings
+## Important Decisions
 
-### Technical
-- [Learning 1]: [Context and implications]
-- [Learning 2]: [Context and implications]
+_Record significant decisions and their rationale._
 
-### Process
-- [Process insight 1]
-- [Process insight 2]
+## Key Learnings
 
-### Domain Knowledge
-- [Domain-specific knowledge]
+_What you've learned about your human, their preferences, projects._
 
----
+## Active Projects
 
-## 🔗 Important References
+_Current work in progress._
 
-### People
-- [Person/Role]: [Context of interaction]
+## People & Preferences
 
-### Projects
-- [Project]: [Your role and status]
-
-### Documentation
-- [Doc]: [Location and relevance]
+_Names, relationships, preferences to remember._
 
 ---
 
-## 📝 Session Log
+## How to Use This File
 
-### {DATE}
-- ✅ Activated seat
-- ✅ Completed BOOTSTRAP.md
-- 🔄 [Next tasks]
+- **Write** significant events, decisions, insights
+- **Review** at the start of each session
+- **Prune** outdated info periodically
+- **Distill** from daily logs in `memory/YYYY-MM-DD.md`
 
-[Add entries as you work]
-
----
-
-*This is your curated long-term memory. Update it with significant learnings, decisions, and context.*
-
-*For daily logs, use the memory/YYYY-MM-DD.md files.*
+Think of it like a human's long-term memory — curated, not raw.
